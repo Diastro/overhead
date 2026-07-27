@@ -156,6 +156,27 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (best) best.detailUntil = Date.now() + DETAIL_MS;
   });
 
+  // Military fly-by: when a military aircraft newly appears inside coverage,
+  // zoom to ~3 mi around it for 15 s, then return to the home view. At most
+  // one such zoom per minute.
+  const milZoom = { lastAt: 0, active: false };
+  function maybeMilZoom(ac) {
+    const now = Date.now();
+    if (milZoom.active || now - milZoom.lastAt < 60000) return;
+    if (distNm(HOME[0], HOME[1], ac.lat, ac.lon) > MAX_VIEW_MI * NM_PER_MI) return;
+    milZoom.active = true;
+    milZoom.lastAt = now;
+    const nm = 3 * NM_PER_MI;
+    map.flyToBounds(L.latLngBounds([
+      project(ac.lat, ac.lon, 0, nm), project(ac.lat, ac.lon, 180, nm),
+      project(ac.lat, ac.lon, 90, nm), project(ac.lat, ac.lon, 270, nm),
+    ]), { duration: 1.6 });
+    setTimeout(() => {
+      applyRange(Number(rangeInput.value)); // back to the home view
+      milZoom.active = false;
+    }, 15000);
+  }
+
   // Collapsible list of aircraft currently inside the visible map area
   const listToggle = document.getElementById('list-toggle');
   const listPanel = document.getElementById('list-panel');
@@ -304,6 +325,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   bwEl.addEventListener('click', () => {
     bwChart.classList.toggle('open');
     drawBwChart();
+    drawBwBars();
   });
   bwCanvas.addEventListener('mousemove', (e) => {
     if (!bwHistory.length) return;
@@ -319,20 +341,100 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   });
   bwCanvas.addEventListener('mouseleave', () => { bwHover = null; drawBwChart(); });
 
-  function updateBandwidth(feedBytes) {
+  const bwStats = document.getElementById('bw-stats');
+  const bwMinCanvas = document.getElementById('bw-min-canvas');
+  const bwMinCtx = bwMinCanvas.getContext('2d');
+  const bwMinPeak = document.getElementById('bw-min-peak');
+  const lowbwEl = document.getElementById('lowbw');
+  const bwMinutes = []; // {min: epoch-minute, bytes}
+
+  lowbwEl.addEventListener('change', () => {
+    fetch('/lowbw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: lowbwEl.checked }),
+    }).catch(() => { lowbwEl.checked = !lowbwEl.checked; });
+  });
+
+  function fmtBytes(b) {
+    if (b >= 1073741824) return (b / 1073741824).toFixed(2) + ' GB';
+    if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
+    return (b / 1024).toFixed(0) + ' KB';
+  }
+
+  function updateBandwidth(payload) {
+    const feedBytes = payload.feedBytes;
     if (feedBytes == null) return;
+    if (document.activeElement !== lowbwEl && payload.lowBandwidth != null) {
+      lowbwEl.checked = payload.lowBandwidth;
+    }
     const now = Date.now();
     let rate = '';
     if (bwPrev && feedBytes > bwPrev.bytes) {
-      const kbs = (feedBytes - bwPrev.bytes) / 1024 / ((now - bwPrev.at) / 1000);
+      const delta = feedBytes - bwPrev.bytes;
+      const kbs = delta / 1024 / ((now - bwPrev.at) / 1000);
       rate = ` · ${kbs.toFixed(1)} KB/s`;
       bwHistory.push({ at: now, kbs });
       while (bwHistory.length && now - bwHistory[0].at > 60000) bwHistory.shift();
+      const mn = Math.floor(now / 60000);
+      const last = bwMinutes[bwMinutes.length - 1];
+      if (last && last.min === mn) last.bytes += delta;
+      else bwMinutes.push({ min: mn, bytes: delta });
+      while (bwMinutes.length > 31) bwMinutes.shift();
     }
     bwPrev = { bytes: feedBytes, at: now };
-    const mb = feedBytes / 1048576;
-    bwEl.textContent = `FEED DATA: ${mb < 1 ? (feedBytes / 1024).toFixed(0) + ' KB' : mb.toFixed(1) + ' MB'}${rate}`;
+    bwEl.textContent = `USAGE DATA · ${fmtBytes(feedBytes)}${rate}`;
+
+    if (bwChart.classList.contains('open')) {
+      const elapsed = payload.startedAt ? (now - payload.startedAt) / 1000 : null;
+      const avg = elapsed && elapsed > 30 ? feedBytes / elapsed : null;
+      bwStats.replaceChildren(
+        statRow('SESSION', `${fmtBytes(feedBytes)}${avg ? ` · avg ${(avg / 1024).toFixed(1)} KB/s` : ''}`),
+        statRow('EST / DAY', avg ? fmtBytes(avg * 86400) : 'measuring…'),
+        statRow('MODE', payload.lowBandwidth ? 'LOW BANDWIDTH' : 'FULL'),
+      );
+    }
     drawBwChart();
+    drawBwBars();
+  }
+  function statRow(k, v) {
+    const d = document.createElement('div');
+    const b = document.createElement('b');
+    b.textContent = v;
+    d.append(k + ': ', b);
+    return d;
+  }
+
+  // Per-minute bars, last 30 minutes
+  function drawBwBars() {
+    if (!bwChart.classList.contains('open') || !bwMinutes.length) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = 264, H = 56;
+    if (bwMinCanvas.width !== W * dpr) {
+      bwMinCanvas.width = W * dpr;
+      bwMinCanvas.height = H * dpr;
+      bwMinCanvas.style.width = W + 'px';
+      bwMinCanvas.style.height = H + 'px';
+    }
+    bwMinCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    bwMinCtx.clearRect(0, 0, W, H);
+    const nowMin = Math.floor(Date.now() / 60000);
+    const byMin = new Map(bwMinutes.map((m) => [m.min, m.bytes]));
+    const max = Math.max(1, ...bwMinutes.map((m) => m.bytes));
+    const slot = W / 30;
+    for (let i = 0; i < 30; i++) {
+      const mn = nowMin - 29 + i;
+      const bytes = byMin.get(mn) || 0;
+      if (!bytes) continue;
+      const h = Math.max(2, (bytes / max) * (H - 6));
+      bwMinCtx.globalAlpha = mn === nowMin ? 0.55 : 0.9; // current minute is partial
+      bwMinCtx.fillStyle = COLORS.icon;
+      bwMinCtx.beginPath();
+      bwMinCtx.roundRect(i * slot + 1, H - h, slot - 2, h, 2);
+      bwMinCtx.fill();
+    }
+    bwMinCtx.globalAlpha = 1;
+    bwMinPeak.textContent = `PEAK ${fmtBytes(max)}/min`;
   }
 
   function drawBwChart() {
@@ -409,14 +511,19 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   es.onmessage = (e) => {
     const payload = JSON.parse(e.data);
     feedState.source = payload.source;
-    updateBandwidth(payload.feedBytes);
+    updateBandwidth(payload);
     if (!payload.ok || !payload.aircraft) { feedState.ok = false; return; }
     feedState.ok = true;
     feedState.lastOkAt = Date.now();
 
     const seen = new Set();
+    let milCandidate = null;
     for (const ac of payload.aircraft) {
       seen.add(ac.hex);
+      const existing = targets.get(ac.hex);
+      if (ac.mil && !(existing && existing.meta && existing.meta.mil) && !milCandidate) {
+        milCandidate = ac; // newly appeared military target
+      }
       const fix = {
         lat: ac.lat, lon: ac.lon,
         gs: ac.gs || 0,
@@ -442,6 +549,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     for (const [hex, t] of targets) {
       if (!seen.has(hex) && Date.now() - t.lastSeen > 15000) targets.delete(hex);
     }
+    if (milCandidate) maybeMilZoom(milCandidate);
   };
 
   // ------------------------------------------------------------------ icons

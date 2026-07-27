@@ -119,6 +119,11 @@ let consecutiveFailures = 0;
 let feedBytes = 0; // cumulative internet bytes pulled from the feed
 let viewArea = null; // {lat, lon, radius_nm} — extra region when the map pans away from home
 let pollInFlight = false;
+let lowBandwidth = !!config.low_bandwidth;
+let lastOuter = []; // aircraft beyond the inner ring, cached between full sweeps in low-bw mode
+let tick = 0;
+const STARTED_AT = Date.now();
+const INNER_NM = config.low_bw_inner_nm || 10;
 const clients = new Set();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -141,30 +146,48 @@ async function fetchRegion(src, lat, lon, radiusNm) {
   return JSON.parse(text).ac || [];
 }
 
-async function poll() {
+async function poll(kind = 'full') {
   if (pollInFlight) return;
   pollInFlight = true;
   try {
-    await pollOnce();
+    await pollOnce(kind);
   } finally {
     pollInFlight = false;
   }
 }
 
-async function pollOnce() {
+// Low-bandwidth mode: the inner ring around home polls often (kind 'inner'),
+// the full radius only every few ticks; outer aircraft are carried over from
+// the last full sweep so they stay on screen between sweeps.
+function scheduledPoll() {
+  tick++;
+  if (!lowBandwidth) return poll('full');
+  if (tick % 5 === 0) return poll('full'); // every 15 s at the 3 s base
+  if (tick % 2 === 1) return poll('inner'); // roughly every 6 s
+}
+
+async function pollOnce(kind) {
   const src = SOURCES[sourceIdx];
   try {
-    const ac = await fetchRegion(src, config.home.lat, config.home.lon, RADIUS_NM);
-    if (viewArea) {
-      await sleep(1100); // stay under the API's 1 req/s limit
-      try {
-        const extra = await fetchRegion(src, viewArea.lat, viewArea.lon, viewArea.radius_nm);
-        const seen = new Set(ac.map((a) => a.hex));
-        for (const a of extra) if (!seen.has(a.hex)) ac.push(a);
-      } catch (err) {
-        // view region is best-effort; home data still goes out
-        console.error(`[feed] view region failed (${err.message})`);
+    let ac;
+    if (kind === 'inner') {
+      const inner = await fetchRegion(src, config.home.lat, config.home.lon, INNER_NM);
+      const seen = new Set(inner.map((a) => a.hex));
+      ac = inner.concat(lastOuter.filter((a) => !seen.has(a.hex)));
+    } else {
+      ac = await fetchRegion(src, config.home.lat, config.home.lon, RADIUS_NM);
+      if (viewArea) {
+        await sleep(1100); // stay under the API's 1 req/s limit
+        try {
+          const extra = await fetchRegion(src, viewArea.lat, viewArea.lon, viewArea.radius_nm);
+          const seen = new Set(ac.map((a) => a.hex));
+          for (const a of extra) if (!seen.has(a.hex)) ac.push(a);
+        } catch (err) {
+          // view region is best-effort; home data still goes out
+          console.error(`[feed] view region failed (${err.message})`);
+        }
       }
+      lastOuter = ac.filter((a) => (a.dst ?? 999) > INNER_NM * 0.9);
     }
     const aircraft = normalize(ac);
     lastSuccessAt = Date.now();
@@ -174,6 +197,8 @@ async function pollOnce() {
       source: src.name,
       ok: true,
       feedBytes,
+      startedAt: STARTED_AT,
+      lowBandwidth,
       aircraft,
     };
     broadcast(lastPayload);
@@ -212,14 +237,18 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-// Persist a new home to config.local.json (gitignored) so the user's real
-// coordinates never land in the committed config.
-function persistHome() {
+// Persist settings to config.local.json (gitignored) — the user's real
+// coordinates and preferences never land in the committed config.
+function updateLocalConfig(patch) {
   const p = path.join(ROOT, 'config.local.json');
   let local = {};
   try { local = JSON.parse(fs.readFileSync(p, 'utf8')); } catch {}
-  local.home = { ...local.home, lat: config.home.lat, lon: config.home.lon };
+  Object.assign(local, patch);
   fs.writeFileSync(p, JSON.stringify(local, null, 2) + '\n');
+}
+
+function persistHome() {
+  updateLocalConfig({ home: { lat: config.home.lat, lon: config.home.lon } });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -249,6 +278,27 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(502, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'geocoder unreachable' }));
     }
+    return;
+  }
+
+  if (url.pathname === '/lowbw' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        const { enabled } = JSON.parse(body);
+        if (typeof enabled !== 'boolean') throw new Error('bad flag');
+        lowBandwidth = enabled;
+        updateLocalConfig({ low_bandwidth: enabled });
+        console.log(`[feed] low-bandwidth mode ${enabled ? 'ON' : 'OFF'}`);
+        if (!enabled) poll('full');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, lowBandwidth }));
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'expected JSON {enabled: boolean}' }));
+      }
+    });
     return;
   }
 
@@ -341,6 +391,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(config.port, () => {
   console.log(`Overhead tracker on http://localhost:${config.port}`);
   console.log(`Home ${config.home.lat}, ${config.home.lon} · radius ${RADIUS_NM} nm · poll ${config.poll_seconds}s`);
-  poll();
-  setInterval(poll, Math.max(2, config.poll_seconds) * 1000);
+  poll('full');
+  setInterval(scheduledPoll, Math.max(2, config.poll_seconds) * 1000);
 });

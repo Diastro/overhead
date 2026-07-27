@@ -329,6 +329,31 @@ body { background: var(--stage-bg); }
   color: var(--bar-ink);
 }
 #bw-chart .hdr #bw-cur { color: var(--bar-bright); }
+#bw-chart .hdr:not(:first-child) { margin-top: 6px; }
+#bw-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--panel-line);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--bar-ink);
+}
+#bw-stats b { color: var(--bar-bright); font-weight: 600; }
+#lowbw-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--bar-bright);
+  cursor: pointer;
+}
+#lowbw-row input { accent-color: var(--accent); cursor: pointer; }
+#bw-chart .note { font-size: 9px; letter-spacing: 0.06em; color: var(--muted); }
 
 /* keep required OSM/CARTO attribution, quiet it down */
 .leaflet-control-attribution {
