@@ -35,7 +35,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
   const TILE_URLS = {
     dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    light: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
   };
   const tiles = L.tileLayer(TILE_URLS.dark, {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
@@ -479,17 +479,17 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       chartMuted: '#5a6c7e',
     },
     light: {
-      icon: '#1273b8', trail: '#2a7fc0', leader: '#7d94a8',
-      blockBg: 'rgba(252,254,255,0.93)', blockEdge: '#a8bccc',
-      amber: '#a86e08', amberEdge: '#c9962e', amberBg: 'rgba(255,248,230,0.95)',
-      mil: '#c0342a', milEdge: '#c0342a', milBg: 'rgba(255,238,235,0.95)',
-      dim: '#8fa0ae',
-      ring: '#3f8a77', ringText: '#2e6b5f', home: '#16222e',
-      textNormal: ['#0b5f96', '#22303c', '#8a6210', '#4c5c68'],
-      textOverhead: ['#7a5a06', '#4c3c10', '#8a6210', '#6b5a30'],
-      textMil: ['#a02418', '#4c2018', '#8a3a2c', '#7a544e'],
+      icon: '#3a7ca5', trail: '#6aa5c8', leader: '#a3a08c',
+      blockBg: 'rgba(253,250,243,0.94)', blockEdge: '#c9bda4',
+      amber: '#b08430', amberEdge: '#c49a3c', amberBg: 'rgba(251,242,222,0.96)',
+      mil: '#c4675c', milEdge: '#b8564a', milBg: 'rgba(250,235,231,0.96)',
+      dim: '#a3a89e',
+      ring: '#5e9c88', ringText: '#4a8270', home: '#34435a',
+      textNormal: ['#2a6fae', '#46525c', '#a07818', '#6d7a85'],
+      textOverhead: ['#8a6a10', '#5c4a16', '#a07818', '#7d6c42'],
+      textMil: ['#a5473c', '#5c2c26', '#96554a', '#8a6b64'],
       tagText: '#fdf8ef',
-      chartMuted: '#7a8a99',
+      chartMuted: '#9aa1a8',
     },
   };
   let COLORS = THEMES.dark;

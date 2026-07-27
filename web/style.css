@@ -23,22 +23,23 @@ body {
   --stall-flash: #4a1410;
 }
 body.light {
-  --stage-bg: #dfe6ec;
-  --bar-bg: #f2f5f8;
-  --bar-ink: #52667a;
-  --bar-bright: #16222e;
-  --muted: #7a8a99;
-  --accent: #1273b8;
-  --ok: #1e9e5f;
-  --warn: #b97812;
-  --bad: #c0342a;
-  --panel-bg: rgba(250, 252, 254, 0.92);
-  --panel-border: #c6d4e0;
-  --panel-line: #dde6ee;
-  --hover-bg: #e8eff5;
-  --input-bg: #ffffff;
-  --input-border: #a8bccc;
-  --btn-bg: #e2ebf2;
+  /* faded pastels over warm ivory — pairs with the Voyager basemap */
+  --stage-bg: #cfe0e8;
+  --bar-bg: #fbf7ee;
+  --bar-ink: #6b7280;
+  --bar-bright: #2c3844;
+  --muted: #98948a;
+  --accent: #3a7ca5;
+  --ok: #4c9e6e;
+  --warn: #b08430;
+  --bad: #c4675c;
+  --panel-bg: rgba(253, 250, 243, 0.92);
+  --panel-border: #d8cdb8;
+  --panel-line: #ece4d2;
+  --hover-bg: #f2ead9;
+  --input-bg: #fffdf8;
+  --input-border: #c9bda4;
+  --btn-bg: #ecdfc8;
   --stall-flash: #f3cdc7;
 }
 
