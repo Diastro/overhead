@@ -317,6 +317,7 @@ body { background: var(--stage-bg); }
   display: none;
   flex-direction: column;
   gap: 4px;
+  width: 290px; /* fixed: content (mode notes) must not resize the panel */
   padding: 10px 12px 8px;
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
@@ -375,7 +376,14 @@ body { background: var(--stage-bg); }
   color: var(--bar-bright);
   border-color: var(--accent);
 }
-#bw-chart .note { font-size: 9px; letter-spacing: 0.06em; color: var(--muted); }
+#bw-chart .note {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  white-space: normal;
+  line-height: 1.5;
+  min-height: 2.2em; /* two lines reserved so wrap length doesn't change height */
+}
 
 /* keep required OSM/CARTO attribution, quiet it down */
 .leaflet-control-attribution {
