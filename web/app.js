@@ -35,7 +35,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     // fractional zoom so the view slider actually changes scale per mile —
     // default integer snapping collapses ~10 mile values onto one zoom level
     zoomSnap: 0.1,
-    zoomDelta: 0.5,
+    zoomDelta: 1, // keyboard/buttons still step a full level
+    // fine zoomSnap shrinks each wheel notch's snapped step; lower px-per-level
+    // compensates so a notch still zooms ~a full level
+    wheelPxPerZoomLevel: 30,
   });
 
   const TILE_URLS = {

@@ -362,19 +362,21 @@ body { background: var(--stage-bg); }
   padding: 5px 10px;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
-  border-left-width: 0;
+  margin-left: -1px; /* overlap shared borders; every button keeps all four */
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.1em;
   color: var(--bar-ink);
   cursor: pointer;
 }
-#bwmode-row .seg button:first-child { border-left-width: 1px; border-radius: 4px 0 0 4px; }
+#bwmode-row .seg button:first-child { margin-left: 0; border-radius: 4px 0 0 4px; }
 #bwmode-row .seg button:last-child { border-radius: 0 4px 4px 0; }
 #bwmode-row .seg button.active {
   background: var(--btn-bg);
   color: var(--bar-bright);
   border-color: var(--accent);
+  position: relative;
+  z-index: 1; /* active button's full accent outline wins the overlap */
 }
 #bw-chart .note {
   font-size: 9px;
