@@ -15,13 +15,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
 (async function main() {
   const config = await (await fetch('/config')).json();
-  const HOME = [config.home.lat, config.home.lon];
+  let HOME = [config.home.lat, config.home.lon];
 
   // Shared constants — keep at the top: init code below runs immediately and
   // consts are not hoisted (a TDZ crash here bricks the whole app).
   const NM_PER_MI = 0.868976;
-  const TRAIL_FADE_MS = (config.trail_fade_seconds ?? 30) * 1000;
-  const TRAIL_FADE_NM = (config.trail_fade_miles ?? 2) * NM_PER_MI;
+  const TRAIL_FADE_MS = (config.trail_fade_seconds ?? 60) * 1000;
   const DETAIL_MS = (config.detail_click_seconds ?? 7) * 1000;
   const DETAIL_VIEW_MI = config.detail_always_below_view_miles ?? 10;
   const MAX_VIEW_MI = 50;
@@ -34,7 +33,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     attributionControl: true,
   });
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  const TILE_URLS = {
+    dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+  };
+  const tiles = L.tileLayer(TILE_URLS.dark, {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
     subdomains: 'abcd',
     maxZoom: 19,
@@ -139,8 +142,21 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     listToggle.classList.toggle('open', open);
     if (open) renderList();
   });
+
+  // Hovering a row isolates that aircraft: every other data block on the map
+  // hides until the pointer leaves the list.
+  let focusedHex = null;
+  let listHovered = false;
+  listPanel.addEventListener('mouseenter', () => { listHovered = true; });
+  listPanel.addEventListener('mouseleave', () => { listHovered = false; focusedHex = null; });
+  listEl.addEventListener('mouseover', (e) => {
+    const li = e.target.closest('li');
+    if (li) focusedHex = li.dataset.hex;
+  });
+
   function renderList() {
     if (!listPanel.classList.contains('open')) return;
+    if (listHovered) return; // keep rows stable under the cursor
     const bounds = map.getBounds();
     const rows = [];
     for (const t of targets.values()) {
@@ -152,6 +168,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const m = t.meta;
       const li = document.createElement('li');
       const dMi = d / NM_PER_MI;
+      li.dataset.hex = m.hex;
       if (m.mil) li.classList.add('mil');
       else if (!t.fix.onGround && d <= (config.overhead_nm || 5)) li.classList.add('overhead');
       const l1 = document.createElement('div');
@@ -172,9 +189,81 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
   setInterval(renderList, 1000);
 
-  // Bandwidth used by the live feed (reported by the server per poll)
+  // Relocatable home: address (geocoded server-side via Nominatim, keyless)
+  // or raw "lat,lon". Saved to config.local.json; map flies out and back in.
+  const homeToggle = document.getElementById('home-toggle');
+  const homePanel = document.getElementById('home-panel');
+  const homeInput = document.getElementById('home-input');
+  const homeSetBtn = document.getElementById('home-set');
+  const homeMsg = document.getElementById('home-msg');
+  homeToggle.addEventListener('click', () => {
+    if (homePanel.classList.toggle('open')) homeInput.focus();
+  });
+  async function setHome() {
+    const q = homeInput.value.trim();
+    if (!q) return;
+    homeMsg.textContent = 'LOOKING UP…';
+    try {
+      let lat, lon, label = null;
+      const m = q.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+      if (m) {
+        lat = Number(m[1]);
+        lon = Number(m[2]);
+      } else {
+        const r = await fetch('/geocode?q=' + encodeURIComponent(q));
+        if (!r.ok) throw new Error('address not found');
+        ({ lat, lon, label } = await r.json());
+      }
+      const save = await fetch('/home', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lon }),
+      });
+      if (!save.ok) throw new Error('could not save home');
+      HOME = [lat, lon];
+      targets.clear(); // old area's aircraft vanish; next poll brings the new sky
+      homeMsg.textContent = label ? ('→ ' + label).slice(0, 36) : 'HOME UPDATED';
+      map.flyTo(HOME, map.getZoom(), { duration: 2.2 }); // arcs out, then back in
+      setTimeout(() => {
+        homePanel.classList.remove('open');
+        homeMsg.textContent = '';
+      }, 2600);
+    } catch (err) {
+      homeMsg.textContent = String(err.message || err).toUpperCase();
+    }
+  }
+  homeSetBtn.addEventListener('click', setHome);
+  homeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') setHome(); });
+
+  // Bandwidth used by the live feed (reported by the server per poll).
+  // Clicking the readout opens a sparkline of the last 60 s of feed rate.
   const bwEl = document.getElementById('bw');
+  const bwChart = document.getElementById('bw-chart');
+  const bwCanvas = document.getElementById('bw-canvas');
+  const bwCtx = bwCanvas.getContext('2d');
+  const bwCur = document.getElementById('bw-cur');
+  const bwHistory = []; // {at, kbs}
   let bwPrev = null;
+  let bwHover = null; // hovered sample index or null
+
+  bwEl.addEventListener('click', () => {
+    bwChart.classList.toggle('open');
+    drawBwChart();
+  });
+  bwCanvas.addEventListener('mousemove', (e) => {
+    if (!bwHistory.length) return;
+    const rect = bwCanvas.getBoundingClientRect();
+    const frac = (e.clientX - rect.left) / rect.width;
+    const at = Date.now() - 60000 + frac * 60000;
+    let best = 0;
+    for (let i = 1; i < bwHistory.length; i++) {
+      if (Math.abs(bwHistory[i].at - at) < Math.abs(bwHistory[best].at - at)) best = i;
+    }
+    bwHover = best;
+    drawBwChart();
+  });
+  bwCanvas.addEventListener('mouseleave', () => { bwHover = null; drawBwChart(); });
+
   function updateBandwidth(feedBytes) {
     if (feedBytes == null) return;
     const now = Date.now();
@@ -182,10 +271,78 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (bwPrev && feedBytes > bwPrev.bytes) {
       const kbs = (feedBytes - bwPrev.bytes) / 1024 / ((now - bwPrev.at) / 1000);
       rate = ` · ${kbs.toFixed(1)} KB/s`;
+      bwHistory.push({ at: now, kbs });
+      while (bwHistory.length && now - bwHistory[0].at > 60000) bwHistory.shift();
     }
     bwPrev = { bytes: feedBytes, at: now };
     const mb = feedBytes / 1048576;
     bwEl.textContent = `FEED DATA: ${mb < 1 ? (feedBytes / 1024).toFixed(0) + ' KB' : mb.toFixed(1) + ' MB'}${rate}`;
+    drawBwChart();
+  }
+
+  function drawBwChart() {
+    if (!bwChart.classList.contains('open')) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = 264, H = 84;
+    if (bwCanvas.width !== W * dpr) {
+      bwCanvas.width = W * dpr;
+      bwCanvas.height = H * dpr;
+      bwCanvas.style.width = W + 'px';
+      bwCanvas.style.height = H + 'px';
+    }
+    bwCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    bwCtx.clearRect(0, 0, W, H);
+
+    const now = Date.now();
+    const padT = 14, padB = 4;
+    const plotH = H - padT - padB;
+    const max = Math.max(1, ...bwHistory.map((s) => s.kbs));
+    const x = (at) => ((at - (now - 60000)) / 60000) * W;
+    const y = (kbs) => padT + plotH * (1 - kbs / max);
+
+    // faint max gridline + label (text in muted ink, not series color)
+    bwCtx.strokeStyle = COLORS.chartMuted;
+    bwCtx.globalAlpha = 0.35;
+    bwCtx.setLineDash([3, 4]);
+    bwCtx.beginPath();
+    bwCtx.moveTo(0, padT);
+    bwCtx.lineTo(W, padT);
+    bwCtx.stroke();
+    bwCtx.setLineDash([]);
+    bwCtx.globalAlpha = 1;
+    bwCtx.fillStyle = COLORS.chartMuted;
+    bwCtx.font = '10px ui-monospace, "SF Mono", Menlo, monospace';
+    bwCtx.textBaseline = 'bottom';
+    bwCtx.fillText(`${max.toFixed(1)} KB/s`, 2, padT - 2);
+
+    if (bwHistory.length > 1) {
+      // area fill + 2px line, endpoint emphasized
+      bwCtx.beginPath();
+      bwHistory.forEach((s, i) => {
+        i === 0 ? bwCtx.moveTo(x(s.at), y(s.kbs)) : bwCtx.lineTo(x(s.at), y(s.kbs));
+      });
+      const lastPt = bwHistory[bwHistory.length - 1];
+      bwCtx.strokeStyle = COLORS.icon;
+      bwCtx.lineWidth = 2;
+      bwCtx.stroke();
+      bwCtx.lineTo(x(lastPt.at), H - padB);
+      bwCtx.lineTo(x(bwHistory[0].at), H - padB);
+      bwCtx.closePath();
+      bwCtx.globalAlpha = 0.14;
+      bwCtx.fillStyle = COLORS.icon;
+      bwCtx.fill();
+      bwCtx.globalAlpha = 1;
+      const dot = bwHover != null ? bwHistory[bwHover] : lastPt;
+      bwCtx.beginPath();
+      bwCtx.arc(x(dot.at), y(dot.kbs), 3, 0, Math.PI * 2);
+      bwCtx.fillStyle = COLORS.icon;
+      bwCtx.fill();
+    }
+
+    const shown = bwHover != null ? bwHistory[bwHover] : bwHistory[bwHistory.length - 1];
+    bwCur.textContent = shown
+      ? `${shown.kbs.toFixed(1)} KB/s${bwHover != null ? ` · ${Math.round((now - shown.at) / 1000)}s ago` : ''}`
+      : '—';
   }
 
   // ---------------------------------------------------------------- targets
@@ -252,15 +409,48 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const MONO = '13px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
   const MONO_BOLD = '700 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
-  const COLORS = {
-    icon: '#8fd4ff', trail: '#57b8ff', leader: '#3d5a74',
-    blockBg: 'rgba(12,24,38,0.92)', blockEdge: '#2c465e',
-    line1: '#7fd4ff', line2: '#d6e6f5', line3: '#f0c674', line4: '#93a7bc',
-    amber: '#ffd166', amberEdge: '#c9962e', amberBg: 'rgba(26,20,8,0.94)',
-    mil: '#ff6a55', milEdge: '#c94a38', milBg: 'rgba(30,10,8,0.93)',
-    dim: '#6c7f93',
-    ring: '#2b5c52', ringText: '#3f7a6e', home: '#e8f0f7',
+  const THEMES = {
+    dark: {
+      icon: '#8fd4ff', trail: '#57b8ff', leader: '#3d5a74',
+      blockBg: 'rgba(12,24,38,0.92)', blockEdge: '#2c465e',
+      amber: '#ffd166', amberEdge: '#c9962e', amberBg: 'rgba(26,20,8,0.94)',
+      mil: '#ff6a55', milEdge: '#c94a38', milBg: 'rgba(30,10,8,0.93)',
+      dim: '#6c7f93',
+      ring: '#2b5c52', ringText: '#3f7a6e', home: '#e8f0f7',
+      textNormal: ['#7fd4ff', '#d6e6f5', '#f0c674', '#93a7bc'],
+      textOverhead: ['#ffd166', '#f3e3bd', '#f0c674', '#bfae87'],
+      textMil: ['#ff9c8c', '#f3d6d0', '#f0b3a6', '#c09a92'],
+      tagText: '#140f04',
+      chartMuted: '#5a6c7e',
+    },
+    light: {
+      icon: '#1273b8', trail: '#2a7fc0', leader: '#7d94a8',
+      blockBg: 'rgba(252,254,255,0.93)', blockEdge: '#a8bccc',
+      amber: '#a86e08', amberEdge: '#c9962e', amberBg: 'rgba(255,248,230,0.95)',
+      mil: '#c0342a', milEdge: '#c0342a', milBg: 'rgba(255,238,235,0.95)',
+      dim: '#8fa0ae',
+      ring: '#3f8a77', ringText: '#2e6b5f', home: '#16222e',
+      textNormal: ['#0b5f96', '#22303c', '#8a6210', '#4c5c68'],
+      textOverhead: ['#7a5a06', '#4c3c10', '#8a6210', '#6b5a30'],
+      textMil: ['#a02418', '#4c2018', '#8a3a2c', '#7a544e'],
+      tagText: '#fdf8ef',
+      chartMuted: '#7a8a99',
+    },
   };
+  let COLORS = THEMES.dark;
+
+  const themeToggle = document.getElementById('theme-toggle');
+  function applyTheme(name) {
+    COLORS = THEMES[name] || THEMES.dark;
+    document.body.classList.toggle('light', name === 'light');
+    tiles.setUrl(TILE_URLS[name] || TILE_URLS.dark);
+    themeToggle.textContent = name === 'light' ? '☀' : '☾';
+    localStorage.setItem('overhead-theme', name);
+  }
+  themeToggle.addEventListener('click', () => {
+    applyTheme(document.body.classList.contains('light') ? 'dark' : 'light');
+  });
+  applyTheme(localStorage.getItem('overhead-theme') || 'dark');
 
   function fmtAlt(t) {
     if (t.fix.onGround) return 'GROUND';
@@ -321,7 +511,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       ctx.beginPath();
       ctx.roundRect(bx, by, w, 20, [3, 3, 0, 0]);
       ctx.fill();
-      ctx.fillStyle = '#140f04';
+      ctx.fillStyle = COLORS.tagText;
       ctx.font = '700 11px ui-monospace, "SF Mono", Menlo, monospace';
       ctx.textBaseline = 'middle';
       const tag = mil && overhead ? 'M I L · O V E R H E A D' : mil ? 'M I L I T A R Y' : 'O V E R H E A D';
@@ -329,11 +519,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       ty += tagH;
     }
 
-    const palette = mil
-      ? ['#ff9c8c', '#f3d6d0', '#f0b3a6', '#c09a92']
-      : overhead
-        ? [COLORS.amber, '#f3e3bd', COLORS.line3, '#bfae87']
-        : [COLORS.line1, COLORS.line2, COLORS.line3, COLORS.line4];
+    const palette = mil ? COLORS.textMil : overhead ? COLORS.textOverhead : COLORS.textNormal;
     ctx.textBaseline = 'top';
     lines.forEach((s, i) => {
       ctx.font = i === 0 ? MONO_BOLD : MONO;
@@ -362,6 +548,26 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       ctx.textBaseline = 'bottom';
       ctx.fillText(`${rNm} NM`, homePt.x, homePt.y - rPx - 5);
       ctx.textAlign = 'left';
+    }
+    // outer limit of feed coverage: 50 mi around home
+    {
+      const edge = map.latLngToContainerPoint(project(HOME[0], HOME[1], 0, MAX_VIEW_MI * NM_PER_MI));
+      const rPx = Math.hypot(edge.x - homePt.x, edge.y - homePt.y);
+      ctx.strokeStyle = COLORS.ring;
+      ctx.globalAlpha = 0.6;
+      ctx.setLineDash([2, 10]);
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(homePt.x, homePt.y, rPx, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = COLORS.ringText;
+      ctx.font = '12px ui-monospace, "SF Mono", Menlo, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(`${MAX_VIEW_MI} MI COVERAGE LIMIT`, homePt.x, homePt.y - rPx - 5);
+      ctx.textAlign = 'left';
+      ctx.globalAlpha = 1;
     }
     // home marker
     ctx.fillStyle = COLORS.home;
@@ -408,8 +614,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const mil = !!t.meta.mil;
       const nowMs = Date.now();
 
-      // trail: fades with age (30 s) and distance behind the aircraft (2 mi),
-      // whichever limit bites first
+      // trail: purely time-based fade — fully gone at trail_fade_seconds (60 s)
       while (t.trail.length && nowMs - t.trail[0].at > TRAIL_FADE_MS) t.trail.shift();
       if (t.trail.length && !dimmed) {
         const base = mil ? COLORS.mil : overhead ? COLORS.amber : COLORS.trail;
@@ -423,8 +628,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
           const cp = map.latLngToContainerPoint([p.lat, p.lon]);
           if (prev) {
             const ageF = 1 - (nowMs - p.at) / TRAIL_FADE_MS;
-            const distF = 1 - distNm(p.lat, p.lon, t.shown.lat, t.shown.lon) / TRAIL_FADE_NM;
-            const a = Math.max(0, Math.min(ageF, distF)) * 0.5;
+            const a = Math.max(0, ageF) * 0.5;
             if (a > 0.02) {
               ctx.globalAlpha = a;
               ctx.beginPath();
@@ -452,10 +656,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       ctx.restore();
 
       // Data block: at wide view (>10 mi) only overhead targets keep their
-      // block, and aircraft that aren't moving never show one on their own —
-      // anything hidden shows a block for 7 s after a click/tap.
+      // block, and aircraft on the ground or not moving never show one on
+      // their own — anything hidden shows a block for 7 s after a click/tap.
       const stationary = f.gs < 3;
-      let showBlock = !stationary && (overhead || currentViewMiles <= DETAIL_VIEW_MI);
+      let showBlock = !stationary && !f.onGround && (overhead || currentViewMiles <= DETAIL_VIEW_MI);
       let blockAlpha = 1;
       if (!showBlock && t.detailUntil) {
         const left = t.detailUntil - nowMs;
@@ -463,6 +667,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
           showBlock = true;
           blockAlpha = Math.min(1, left / 600); // fade out over the last 0.6 s
         }
+      }
+      // List hover-isolate overrides everything: only the hovered aircraft
+      // keeps its block while the pointer is on the list.
+      if (focusedHex) {
+        showBlock = t.meta.hex === focusedHex;
+        blockAlpha = 1;
       }
       if (showBlock) {
         const side = pt.x < canvas.clientWidth / 2 ? 'right' : 'left';

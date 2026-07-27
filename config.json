@@ -13,8 +13,7 @@
   "port": 8080,
   "show_ground_traffic": true,
   "trail_length": 40,
-  "trail_fade_miles": 2,
-  "trail_fade_seconds": 30,
+  "trail_fade_seconds": 60,
   "detail_click_seconds": 7,
   "detail_always_below_view_miles": 10
 }

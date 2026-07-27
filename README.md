@@ -32,6 +32,15 @@ Edit `config.json`:
 To keep your real coordinates out of git, copy `config.json` to
 `config.local.json` (gitignored) and edit that — it overrides `config.json`.
 
+Easier: click **⌂ HOME** in the app and type an address (geocoded via
+OpenStreetMap Nominatim, keyless) or a raw `lat,lon`. The map flies to the new
+location and the choice is saved to `config.local.json` automatically.
+
+Other in-app controls: **✈ IN VIEW** lists aircraft in the visible area
+(hover a row to isolate that aircraft's data block); the **FEED DATA** readout
+(bottom left) opens a 60-second bandwidth sparkline on click; **☾/☀** in the
+header toggles dark/light theme (persisted per browser).
+
 ## Layout
 
 - `server/` — Node service: static file server, `/events` SSE stream, feed poller

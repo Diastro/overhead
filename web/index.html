@@ -12,7 +12,10 @@
     <div class="brand">OVERHEAD<span>▲</span></div>
     <div class="stat" id="clock">--:--:--</div>
     <div class="stat"><b id="count">0</b> AIRCRAFT · <b id="overhead-count">0</b> OVERHEAD</div>
-    <div class="feed"><span class="dot" id="feed-dot"></span> <span id="feed-name">CONNECTING…</span></div>
+    <div class="right">
+      <div class="feed"><span class="dot" id="feed-dot"></span> <span id="feed-name">CONNECTING…</span></div>
+      <button id="theme-toggle" type="button" title="Toggle light/dark theme">☾</button>
+    </div>
   </header>
   <main id="stage">
     <div id="map"></div>
@@ -22,12 +25,25 @@
       <input type="range" id="range" min="4" max="40" step="1" value="15">
     </div>
     <button id="list-toggle" type="button">✈ IN VIEW</button>
+    <button id="home-toggle" type="button">⌂ HOME</button>
+    <div id="home-panel">
+      <label for="home-input">SET HOME — ADDRESS OR LAT,LON</label>
+      <input id="home-input" type="text" placeholder="e.g. Seattle, WA" autocomplete="off">
+      <div class="row">
+        <button id="home-set" type="button">SET</button>
+        <span id="home-msg"></span>
+      </div>
+    </div>
     <aside id="list-panel">
       <h3>AIRCRAFT IN VIEW</h3>
       <ul id="ac-list"></ul>
     </aside>
     <div id="wide-banner">VIEW TOO WIDE — TRACKING COVERS 50 MI AROUND HOME</div>
-    <div id="bw" title="Internet data used by the live feed (map tiles not included)">FEED DATA: —</div>
+    <div id="bw" title="Internet data used by the live feed (map tiles not included) — click for chart">FEED DATA: —</div>
+    <div id="bw-chart">
+      <div class="hdr"><span>FEED RATE · LAST 60 S</span><span id="bw-cur">—</span></div>
+      <canvas id="bw-canvas" width="264" height="84"></canvas>
+    </div>
   </main>
   <script src="/vendor/leaflet.js"></script>
   <script src="/app.js"></script>

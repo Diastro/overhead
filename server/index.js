@@ -116,7 +116,10 @@ async function poll() {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
-    feedBytes += Buffer.byteLength(text);
+    // Prefer Content-Length: that's compressed wire bytes (the feed gzips);
+    // fall back to decompressed size when the header is absent.
+    const clen = Number(res.headers.get('content-length'));
+    feedBytes += Number.isFinite(clen) && clen > 0 ? clen : Buffer.byteLength(text);
     const body = JSON.parse(text);
     const aircraft = normalize(body.ac || []);
     lastSuccessAt = Date.now();
@@ -164,8 +167,68 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-const server = http.createServer((req, res) => {
+// Persist a new home to config.local.json (gitignored) so the user's real
+// coordinates never land in the committed config.
+function persistHome() {
+  const p = path.join(ROOT, 'config.local.json');
+  let local = {};
+  try { local = JSON.parse(fs.readFileSync(p, 'utf8')); } catch {}
+  local.home = { ...local.home, lat: config.home.lat, lon: config.home.lon };
+  fs.writeFileSync(p, JSON.stringify(local, null, 2) + '\n');
+}
+
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
+
+  if (url.pathname === '/geocode') {
+    const q = (url.searchParams.get('q') || '').trim();
+    if (!q) { res.writeHead(400).end(); return; }
+    try {
+      const r = await fetch(
+        'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(q),
+        {
+          headers: { 'User-Agent': 'overhead-wall-tracker/0.1 (personal hobby display)' },
+          signal: AbortSignal.timeout(8000),
+        }
+      );
+      const results = await r.json();
+      if (!Array.isArray(results) || results.length === 0) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'address not found' }));
+        return;
+      }
+      const { lat, lon, display_name } = results[0];
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ lat: Number(lat), lon: Number(lon), label: display_name }));
+    } catch (err) {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'geocoder unreachable' }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/home' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        const { lat, lon } = JSON.parse(body);
+        if (typeof lat !== 'number' || typeof lon !== 'number' ||
+            Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('bad coords');
+        config.home.lat = lat;
+        config.home.lon = lon;
+        persistHome();
+        console.log(`[home] moved to ${lat}, ${lon}`);
+        poll(); // refresh the sky around the new home right away
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'expected JSON {lat, lon}' }));
+      }
+    });
+    return;
+  }
 
   if (url.pathname === '/events') {
     res.writeHead(200, {
