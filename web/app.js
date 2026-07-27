@@ -34,14 +34,41 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     zoom: 11,
     zoomControl: false,
     attributionControl: true,
-    // fractional zoom so the view slider actually changes scale per mile —
-    // default integer snapping collapses ~10 mile values onto one zoom level
-    zoomSnap: 0.1,
-    zoomDelta: 1, // keyboard/buttons still step a full level
-    // fine zoomSnap shrinks each wheel notch's snapped step; lower px-per-level
-    // compensates so a notch still zooms ~a full level
-    wheelPxPerZoomLevel: 30,
+    // continuous zoom so the view slider changes scale per mile — integer
+    // snapping collapses ~10 mile values onto one zoom level
+    zoomSnap: 0,
+    zoomDelta: 1, // keyboard/buttons step a full level
+    // Leaflet's wheel handler animates a discrete step per notch, which queues
+    // and feels laggy — replaced below with a smooth glide toward a target.
+    scrollWheelZoom: false,
   });
+
+  // Smooth scroll zoom: accumulate wheel input into a target zoom and ease
+  // toward it every frame, anchored at the cursor.
+  const mapEl = document.getElementById('map');
+  let wheelTarget = null;
+  let wheelAnchor = null;
+  let wheelRaf = null;
+  function wheelStep() {
+    wheelRaf = null;
+    const cur = map.getZoom();
+    const diff = wheelTarget - cur;
+    if (Math.abs(diff) < 0.01) {
+      map.setZoomAround(wheelAnchor, wheelTarget, { animate: false });
+      wheelTarget = null;
+      return;
+    }
+    map.setZoomAround(wheelAnchor, cur + diff * 0.3, { animate: false });
+    wheelRaf = requestAnimationFrame(wheelStep);
+  }
+  mapEl.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const dy = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaY; // line-mode wheels
+    wheelTarget = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(),
+      (wheelTarget ?? map.getZoom()) - dy * 0.0035));
+    wheelAnchor = map.mouseEventToContainerPoint(e);
+    if (!wheelRaf) wheelRaf = requestAnimationFrame(wheelStep);
+  }, { passive: false });
 
   const TILE_URLS = {
     dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
