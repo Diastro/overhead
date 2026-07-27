@@ -17,6 +17,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const config = await (await fetch('/config')).json();
   const HOME = [config.home.lat, config.home.lon];
 
+  // Shared constants — keep at the top: init code below runs immediately and
+  // consts are not hoisted (a TDZ crash here bricks the whole app).
+  const NM_PER_MI = 0.868976;
+  const TRAIL_FADE_MS = (config.trail_fade_seconds ?? 30) * 1000;
+  const TRAIL_FADE_NM = (config.trail_fade_miles ?? 2) * NM_PER_MI;
+  const DETAIL_MS = (config.detail_click_seconds ?? 7) * 1000;
+  const DETAIL_VIEW_MI = config.detail_always_below_view_miles ?? 10;
+  const MAX_VIEW_MI = 50;
+
   // ------------------------------------------------------------------- map
   const map = L.map('map', {
     center: HOME,
@@ -252,13 +261,6 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     dim: '#6c7f93',
     ring: '#2b5c52', ringText: '#3f7a6e', home: '#e8f0f7',
   };
-
-  const NM_PER_MI = 0.868976;
-  const TRAIL_FADE_MS = (config.trail_fade_seconds ?? 30) * 1000;
-  const TRAIL_FADE_NM = (config.trail_fade_miles ?? 2) * NM_PER_MI;
-  const DETAIL_MS = (config.detail_click_seconds ?? 7) * 1000;
-  const DETAIL_VIEW_MI = config.detail_always_below_view_miles ?? 10;
-  const MAX_VIEW_MI = 50;
 
   function fmtAlt(t) {
     if (t.fix.onGround) return 'GROUND';
