@@ -42,11 +42,22 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
     light: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
   };
-  const tiles = L.tileLayer(TILE_URLS.dark, {
+  const TILE_OPTS = {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
     subdomains: 'abcd',
     maxZoom: 19,
-  }).addTo(map);
+  };
+  let tiles = L.tileLayer(TILE_URLS.dark, TILE_OPTS).addTo(map);
+  let tilesUrl = TILE_URLS.dark;
+  // Swap by replacing the layer: setUrl() at fractional zoom (zoomSnap 0.1)
+  // leaves the redrawn tiles untransformed — invisible until the map moves.
+  function setTiles(url) {
+    if (url === tilesUrl) return;
+    tilesUrl = url;
+    const old = tiles;
+    tiles = L.tileLayer(url, TILE_OPTS).addTo(map);
+    setTimeout(() => old.remove(), 400); // let the new layer paint first
+  }
 
   const canvas = document.getElementById('scope');
   const ctx = canvas.getContext('2d');
@@ -700,7 +711,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   function applyTheme(name) {
     COLORS = THEMES[name] || THEMES.dark;
     document.body.classList.toggle('light', name === 'light');
-    tiles.setUrl(TILE_URLS[name] || TILE_URLS.dark);
+    setTiles(TILE_URLS[name] || TILE_URLS.dark);
     themeToggle.textContent = name === 'light' ? '☀' : '☾';
     localStorage.setItem('overhead-theme', name);
   }
