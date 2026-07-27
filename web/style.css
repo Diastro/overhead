@@ -56,9 +56,9 @@ body { background: var(--stage-bg); }
   inset: 0 0 auto 0;
   z-index: 1000;
   height: 44px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr; /* true centering regardless of side widths */
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
   padding: 0 18px;
   background: var(--bar-bg);
@@ -79,7 +79,9 @@ body { background: var(--stage-bg); }
 #bar .brand { color: var(--bar-bright); font-weight: 700; letter-spacing: 0.22em; }
 #bar .brand span { color: var(--accent); }
 #bar .stat b { color: var(--bar-bright); font-weight: 600; }
-#bar .right { display: inline-flex; align-items: center; gap: 14px; }
+#bar .brand { justify-self: start; }
+#bar .center { justify-self: center; }
+#bar .right { display: inline-flex; align-items: center; gap: 14px; justify-self: end; }
 #bar .feed { display: inline-flex; align-items: center; gap: 8px; }
 #theme-toggle {
   padding: 4px 10px;
@@ -140,7 +142,7 @@ body { background: var(--stage-bg); }
   cursor: pointer;
 }
 
-#list-toggle, #home-toggle {
+#list-toggle, #home-toggle, #data-toggle {
   position: absolute;
   top: 14px;
   z-index: 600;
@@ -156,7 +158,9 @@ body { background: var(--stage-bg); }
 }
 #list-toggle { left: 16px; }
 #home-toggle { left: 132px; }
-#list-toggle:hover, #list-toggle.open, #home-toggle:hover {
+#data-toggle { left: 230px; }
+#list-toggle:hover, #list-toggle.open, #home-toggle:hover,
+#data-toggle:hover, #data-toggle.open {
   color: var(--bar-bright);
   border-color: var(--input-border);
 }

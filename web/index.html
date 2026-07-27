@@ -10,9 +10,9 @@
 <body>
   <header id="bar">
     <div class="brand">OVERHEAD<span>▲</span></div>
-    <div class="stat" id="clock">--:--:--</div>
-    <div class="stat"><b id="count">0</b> AIRCRAFT · <b id="overhead-count">0</b> OVERHEAD</div>
+    <div class="stat center"><b id="count">0</b> AIRCRAFT · <b id="overhead-count">0</b> OVERHEAD</div>
     <div class="right">
+      <div class="stat" id="clock">--:--:--</div>
       <div class="feed"><span class="dot" id="feed-dot"></span> <span id="feed-name">CONNECTING…</span></div>
       <button id="theme-toggle" type="button" title="Toggle light/dark theme">☾</button>
     </div>
@@ -26,6 +26,7 @@
     </div>
     <button id="list-toggle" type="button">✈ IN VIEW</button>
     <button id="home-toggle" type="button">⌂ HOME</button>
+    <button id="data-toggle" type="button" title="Show data blocks for all aircraft, or only overhead when zoomed out">▤ DATA: OVERHEAD</button>
     <div id="home-panel">
       <label for="home-input">SET HOME — ADDRESS OR LAT,LON</label>
       <input id="home-input" type="text" placeholder="e.g. Seattle, WA" autocomplete="off">

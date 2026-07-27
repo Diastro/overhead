@@ -196,6 +196,21 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }, 15000);
   }
 
+  // Data-block mode: OVERHEAD (default — full blocks only near home when
+  // zoomed out) vs ALL (every airborne aircraft carries its block).
+  const dataToggle = document.getElementById('data-toggle');
+  let dataMode = localStorage.getItem('overhead-data-mode') === 'all' ? 'all' : 'auto';
+  function renderDataToggle() {
+    dataToggle.textContent = dataMode === 'all' ? '▤ DATA: ALL' : '▤ DATA: OVERHEAD';
+    dataToggle.classList.toggle('open', dataMode === 'all');
+  }
+  dataToggle.addEventListener('click', () => {
+    dataMode = dataMode === 'all' ? 'auto' : 'all';
+    localStorage.setItem('overhead-data-mode', dataMode);
+    renderDataToggle();
+  });
+  renderDataToggle();
+
   // Collapsible list of aircraft currently inside the visible map area
   const listToggle = document.getElementById('list-toggle');
   const listPanel = document.getElementById('list-panel');
@@ -980,7 +995,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // block, and aircraft on the ground or not moving never show one on
       // their own — anything hidden shows a block for 7 s after a click/tap.
       const stationary = f.gs < 3;
-      let showBlock = !stationary && !f.onGround && (overhead || currentViewMiles <= DETAIL_VIEW_MI);
+      let showBlock = !stationary && !f.onGround &&
+        (dataMode === 'all' || overhead || currentViewMiles <= DETAIL_VIEW_MI);
       let blockAlpha = 1;
       if (!showBlock && t.detailUntil) {
         const left = t.detailUntil - nowMs;
