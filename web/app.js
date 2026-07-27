@@ -3,6 +3,16 @@
 // so motion is continuous between 3-second feed updates.
 'use strict';
 
+// Surface fatal errors in the status bar — a kiosk has no devtools open.
+function showFatal(msg) {
+  const el = document.getElementById('feed-name');
+  if (el) el.textContent = 'APP ERROR: ' + msg;
+  const dot = document.getElementById('feed-dot');
+  if (dot) dot.className = 'dot bad';
+}
+window.addEventListener('error', (e) => showFatal(e.message));
+window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message || String(e.reason)));
+
 (async function main() {
   const config = await (await fetch('/config')).json();
   const HOME = [config.home.lat, config.home.lon];
@@ -15,25 +25,6 @@
     attributionControl: true,
   });
 
-  // View-range slider (top right): fits the map so ~N statute miles are visible
-  // around home. 1 mi = 0.868976 nm.
-  const rangeInput = document.getElementById('range');
-  const rangeVal = document.getElementById('range-val');
-  const vm = config.view_miles || { min: 4, max: 40, default: 15 };
-  rangeInput.min = vm.min;
-  rangeInput.max = vm.max;
-  rangeInput.value = vm.default;
-  function applyRange(miles) {
-    rangeVal.textContent = miles;
-    const nm = miles * 0.868976;
-    const north = project(HOME[0], HOME[1], 0, nm);
-    const south = project(HOME[0], HOME[1], 180, nm);
-    const east = project(HOME[0], HOME[1], 90, nm);
-    const west = project(HOME[0], HOME[1], 270, nm);
-    map.fitBounds(L.latLngBounds([north, south, east, west]), { animate: true });
-  }
-  rangeInput.addEventListener('input', () => applyRange(Number(rangeInput.value)));
-  applyRange(Number(rangeInput.value));
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
     subdomains: 'abcd',
@@ -74,6 +65,26 @@
     if (d < -180) d += 360;
     return d;
   }
+
+  // View-range slider (top right): fits the map so ~N statute miles are visible
+  // around home. 1 mi = 0.868976 nm.
+  const rangeInput = document.getElementById('range');
+  const rangeVal = document.getElementById('range-val');
+  const vm = config.view_miles || { min: 4, max: 40, default: 15 };
+  rangeInput.min = vm.min;
+  rangeInput.max = vm.max;
+  rangeInput.value = vm.default;
+  function applyRange(miles) {
+    rangeVal.textContent = miles;
+    const nm = miles * 0.868976;
+    const north = project(HOME[0], HOME[1], 0, nm);
+    const south = project(HOME[0], HOME[1], 180, nm);
+    const east = project(HOME[0], HOME[1], 90, nm);
+    const west = project(HOME[0], HOME[1], 270, nm);
+    map.fitBounds(L.latLngBounds([north, south, east, west]), { animate: true });
+  }
+  rangeInput.addEventListener('input', () => applyRange(Number(rangeInput.value)));
+  applyRange(Number(rangeInput.value));
 
   // ---------------------------------------------------------------- targets
   // hex -> { fix, shown: {lat, lon, track}, trail: [[lat,lon],...], meta, lastSeen }
