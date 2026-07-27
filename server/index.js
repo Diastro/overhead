@@ -121,6 +121,7 @@ let viewArea = null; // {lat, lon, radius_nm} — extra region when the map pans
 let pollInFlight = false;
 let lowBandwidth = !!config.low_bandwidth;
 let lastOuter = []; // aircraft beyond the inner ring, cached between full sweeps in low-bw mode
+let lastOuterAt = 0; // when that cache was fetched — rebroadcasts age seen_pos from this
 let tick = 0;
 const STARTED_AT = Date.now();
 const INNER_NM = config.low_bw_inner_nm || 10;
@@ -173,7 +174,14 @@ async function pollOnce(kind) {
     if (kind === 'inner') {
       const inner = await fetchRegion(src, config.home.lat, config.home.lon, INNER_NM);
       const seen = new Set(inner.map((a) => a.hex));
-      ac = inner.concat(lastOuter.filter((a) => !seen.has(a.hex)));
+      // Rebroadcast cached outer aircraft with seen_pos aged by cache time, so
+      // clients know the fix is old instead of re-extrapolating it as fresh.
+      const cacheAgeS = lastOuterAt ? (Date.now() - lastOuterAt) / 1000 : 0;
+      ac = inner.concat(
+        lastOuter
+          .filter((a) => !seen.has(a.hex))
+          .map((a) => ({ ...a, seen_pos: (a.seen_pos || 0) + cacheAgeS }))
+      );
     } else {
       ac = await fetchRegion(src, config.home.lat, config.home.lon, RADIUS_NM);
       if (viewArea) {
@@ -188,6 +196,7 @@ async function pollOnce(kind) {
         }
       }
       lastOuter = ac.filter((a) => (a.dst ?? 999) > INNER_NM * 0.9);
+      lastOuterAt = Date.now();
     }
     const aircraft = normalize(ac);
     lastSuccessAt = Date.now();

@@ -531,6 +531,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         alt: ac.alt, vr: ac.vr, onGround: ac.onGround,
         at: Date.now() - (ac.seenPos ? ac.seenPos * 1000 : 0),
       };
+      // Same position rebroadcast (low-bw cached outer targets): keep the
+      // original fix time so extrapolation continues instead of restarting.
+      if (existing && existing.fix &&
+          existing.fix.lat === fix.lat && existing.fix.lon === fix.lon) {
+        fix.at = Math.min(existing.fix.at, fix.at);
+      }
       let t = targets.get(ac.hex);
       if (!t) {
         t = { shown: { lat: ac.lat, lon: ac.lon, track: fix.track }, trail: [] };
@@ -760,9 +766,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // dead-reckon from the fix, ease the shown position toward it
       const age = (Date.now() - f.at) / 1000;
       const [pLat, pLon] = f.gs > 1 && !f.onGround
-        ? project(f.lat, f.lon, f.track, (f.gs * Math.min(age, 20)) / 3600)
+        ? project(f.lat, f.lon, f.track, (f.gs * Math.min(age, 45)) / 3600)
         : [f.lat, f.lon];
-      const k = 1 - Math.exp(-dtF * 2.2);
+      // Big corrections (long-gap fixes in low-bw mode) glide gently; small
+      // ones stay snappy.
+      const corrNm = distNm(t.shown.lat, t.shown.lon, pLat, pLon);
+      const k = 1 - Math.exp(-dtF * (corrNm > 0.25 ? 0.9 : 2.2));
       t.shown.lat += (pLat - t.shown.lat) * k;
       t.shown.lon += (pLon - t.shown.lon) * k;
       t.shown.track += shortestArc(t.shown.track, f.track) * k;
