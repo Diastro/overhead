@@ -356,6 +356,17 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }).catch(() => { lowbwEl.checked = !lowbwEl.checked; });
   });
 
+  function hexA(hex, a) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  }
+  function lerpHex(h1, h2, t) {
+    const a = parseInt(h1.slice(1), 16);
+    const b = parseInt(h2.slice(1), 16);
+    const ch = (sh) => Math.round(((a >> sh) & 255) + (((b >> sh) & 255) - ((a >> sh) & 255)) * t);
+    return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+  }
+
   function fmtBytes(b) {
     if (b >= 1073741824) return (b / 1073741824).toFixed(2) + ' GB';
     if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
@@ -426,9 +437,13 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const mn = nowMin - 29 + i;
       const bytes = byMin.get(mn) || 0;
       if (!bytes) continue;
-      const h = Math.max(2, (bytes / max) * (H - 6));
-      bwMinCtx.globalAlpha = mn === nowMin ? 0.55 : 0.9; // current minute is partial
-      bwMinCtx.fillStyle = COLORS.icon;
+      const t = bytes / max;
+      const h = Math.max(2, t * (H - 6));
+      bwMinCtx.globalAlpha = mn === nowMin ? 0.55 : 0.95; // current minute is partial
+      // sequential ramp by magnitude; the peak minute gets the accent gold
+      bwMinCtx.fillStyle = bytes === max && mn !== nowMin
+        ? COLORS.chartPeak
+        : lerpHex(COLORS.chartLow, COLORS.chartHigh, t);
       bwMinCtx.beginPath();
       bwMinCtx.roundRect(i * slot + 1, H - h, slot - 2, h, 2);
       bwMinCtx.fill();
@@ -473,26 +488,27 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     bwCtx.fillText(`${max.toFixed(1)} KB/s`, 2, padT - 2);
 
     if (bwHistory.length > 1) {
-      // area fill + 2px line, endpoint emphasized
+      // gradient area + 2px line, endpoint emphasized
       bwCtx.beginPath();
       bwHistory.forEach((s, i) => {
         i === 0 ? bwCtx.moveTo(x(s.at), y(s.kbs)) : bwCtx.lineTo(x(s.at), y(s.kbs));
       });
       const lastPt = bwHistory[bwHistory.length - 1];
-      bwCtx.strokeStyle = COLORS.icon;
+      bwCtx.strokeStyle = COLORS.chartHigh;
       bwCtx.lineWidth = 2;
       bwCtx.stroke();
       bwCtx.lineTo(x(lastPt.at), H - padB);
       bwCtx.lineTo(x(bwHistory[0].at), H - padB);
       bwCtx.closePath();
-      bwCtx.globalAlpha = 0.14;
-      bwCtx.fillStyle = COLORS.icon;
+      const grad = bwCtx.createLinearGradient(0, padT, 0, H - padB);
+      grad.addColorStop(0, hexA(COLORS.chartHigh, 0.4));
+      grad.addColorStop(1, hexA(COLORS.chartLow, 0.05));
+      bwCtx.fillStyle = grad;
       bwCtx.fill();
-      bwCtx.globalAlpha = 1;
       const dot = bwHover != null ? bwHistory[bwHover] : lastPt;
       bwCtx.beginPath();
-      bwCtx.arc(x(dot.at), y(dot.kbs), 3, 0, Math.PI * 2);
-      bwCtx.fillStyle = COLORS.icon;
+      bwCtx.arc(x(dot.at), y(dot.kbs), 3.5, 0, Math.PI * 2);
+      bwCtx.fillStyle = bwHover != null ? COLORS.chartPeak : COLORS.chartHigh;
       bwCtx.fill();
     }
 
@@ -591,6 +607,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       textMil: ['#ff9c8c', '#f3d6d0', '#f0b3a6', '#c09a92'],
       tagText: '#140f04',
       chartMuted: '#5a6c7e',
+      chartLow: '#2a5f83', chartHigh: '#7fd4ff', chartPeak: '#ffd166',
     },
     light: {
       icon: '#3a7ca5', trail: '#6aa5c8', leader: '#a3a08c',
@@ -604,6 +621,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       textMil: ['#a5473c', '#5c2c26', '#96554a', '#8a6b64'],
       tagText: '#402f08',
       chartMuted: '#9aa1a8',
+      chartLow: '#a8cbe0', chartHigh: '#2a6fae', chartPeak: '#cf8a12',
     },
   };
   let COLORS = THEMES.dark;

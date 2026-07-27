@@ -135,7 +135,7 @@ body { background: var(--stage-bg); }
 }
 #range-ctl b { color: var(--bar-bright); }
 #range-ctl input[type='range'] {
-  width: 160px;
+  width: 260px;
   accent-color: var(--accent);
   cursor: pointer;
 }
