@@ -1,0 +1,95 @@
+:root {
+  --bar-bg: #05080d;
+  --bar-ink: #9fb4c8;
+  --bar-bright: #e8f0f7;
+  --accent: #57b8ff;
+  --ok: #35d07f;
+  --warn: #e0a63c;
+  --bad: #e05c4a;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #0a1420;
+  overflow: hidden;
+}
+
+#bar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 1000;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 18px;
+  background: var(--bar-bg);
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--bar-ink);
+  border-bottom: 1px solid #14202e;
+}
+#bar .brand { color: var(--bar-bright); font-weight: 700; letter-spacing: 0.22em; }
+#bar .brand span { color: var(--accent); }
+#bar .stat b { color: var(--bar-bright); font-weight: 600; }
+#bar .feed { display: inline-flex; align-items: center; gap: 8px; }
+
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #56657a; }
+.dot.ok { background: var(--ok); animation: blink 2.4s ease-in-out infinite; }
+.dot.warn { background: var(--warn); }
+.dot.bad { background: var(--bad); }
+@keyframes blink { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .dot.ok { animation: none; } }
+
+#stage {
+  position: fixed;
+  inset: 44px 0 0 0;
+}
+#map {
+  position: absolute;
+  inset: 0;
+  background: #0a1420;
+}
+#scope {
+  position: absolute;
+  inset: 0;
+  z-index: 500;
+  pointer-events: none;
+}
+
+#range-ctl {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  background: rgba(5, 8, 13, 0.82);
+  border: 1px solid #1c2c3e;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--bar-ink);
+}
+#range-ctl b { color: var(--bar-bright); }
+#range-ctl input[type='range'] {
+  width: 160px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* keep required OSM/CARTO attribution, quiet it down */
+.leaflet-control-attribution {
+  background: rgba(5, 8, 13, 0.6) !important;
+  color: #4a5c70 !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a { color: #5f7a94 !important; }

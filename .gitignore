@@ -1,0 +1,4 @@
+node_modules/
+config.local.json
+data/*.sqlite
+.DS_Store

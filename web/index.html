@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Overhead</title>
+  <link rel="stylesheet" href="/vendor/leaflet.css">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header id="bar">
+    <div class="brand">OVERHEAD<span>▲</span></div>
+    <div class="stat" id="clock">--:--:--</div>
+    <div class="stat"><b id="count">0</b> AIRCRAFT · <b id="overhead-count">0</b> OVERHEAD</div>
+    <div class="feed"><span class="dot" id="feed-dot"></span> <span id="feed-name">CONNECTING…</span></div>
+  </header>
+  <main id="stage">
+    <div id="map"></div>
+    <canvas id="scope"></canvas>
+    <div id="range-ctl">
+      <label for="range">VIEW <b id="range-val">15</b> MI</label>
+      <input type="range" id="range" min="4" max="40" step="1" value="15">
+    </div>
+  </main>
+  <script src="/vendor/leaflet.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

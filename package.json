@@ -1,0 +1,11 @@
+{
+  "name": "tracker",
+  "version": "0.1.0",
+  "description": "Wall-mounted ADS-B flight tracker with ATC-style data blocks. No API keys.",
+  "private": true,
+  "type": "commonjs",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server/index.js"
+  }
+}
