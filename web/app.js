@@ -102,6 +102,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // too-wide banner: the feed only covers 50 mi around home.
   let currentViewMiles = vm.default;
   const banner = document.getElementById('wide-banner');
+  let lastSentView;
+  let viewTimer = null;
   function onViewChanged() {
     const b = map.getBounds();
     const c = map.getCenter();
@@ -110,13 +112,34 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const halfW = distNm(c.lat, c.lng, c.lat, east) / NM_PER_MI;
     const halfH = distNm(c.lat, c.lng, north, c.lng) / NM_PER_MI;
     currentViewMiles = Math.min(halfW, halfH);
-    // farthest visible corner from home
+
     const corners = [
       [b.getNorth(), b.getEast()], [b.getNorth(), b.getWest()],
       [b.getSouth(), b.getEast()], [b.getSouth(), b.getWest()],
     ];
-    const maxMi = Math.max(...corners.map(([la, lo]) => distNm(HOME[0], HOME[1], la, lo))) / NM_PER_MI;
-    banner.classList.toggle('show', maxMi > MAX_VIEW_MI);
+    // radius needed to cover the whole view from its center, and whether the
+    // home region already covers everything visible
+    const needNm = Math.max(...corners.map(([la, lo]) => distNm(c.lat, c.lng, la, lo)));
+    const maxFromHomeNm = Math.max(...corners.map(([la, lo]) => distNm(HOME[0], HOME[1], la, lo)));
+    const coverageNm = config.radius_nm;
+    banner.classList.toggle('show', needNm > coverageNm);
+
+    // When panned/zoomed beyond home coverage, ask the server to also poll a
+    // region around the view center so aircraft here appear too.
+    const desired = maxFromHomeNm <= coverageNm
+      ? null
+      : { lat: c.lat, lon: c.lng, radius_nm: Math.min(Math.ceil(needNm + 2), coverageNm) };
+    const key = desired ? `${desired.lat.toFixed(2)},${desired.lon.toFixed(2)},${desired.radius_nm}` : 'null';
+    if (key === lastSentView) return;
+    clearTimeout(viewTimer);
+    viewTimer = setTimeout(() => {
+      lastSentView = key;
+      fetch('/view', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(desired),
+      }).catch(() => { lastSentView = undefined; });
+    }, 500);
   }
   map.on('zoomend moveend resize', onViewChanged);
   onViewChanged();

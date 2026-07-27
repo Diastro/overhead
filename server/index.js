@@ -100,28 +100,56 @@ let lastPayload = null;
 let lastSuccessAt = 0;
 let consecutiveFailures = 0;
 let feedBytes = 0; // cumulative internet bytes pulled from the feed
+let viewArea = null; // {lat, lon, radius_nm} — extra region when the map pans away from home
+let pollInFlight = false;
 const clients = new Set();
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // The display promises coverage up to 50 statute miles around home — clamp the
 // feed query to that (in nm) no matter what config says.
 const RADIUS_NM = Math.min(config.radius_nm, Math.round(50 * 0.868976));
 
+async function fetchRegion(src, lat, lon, radiusNm) {
+  const res = await fetch(`${src.base}/${lat}/${lon}/${radiusNm}`, {
+    signal: AbortSignal.timeout(8000),
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  // Prefer Content-Length: that's compressed wire bytes (the feed gzips);
+  // fall back to decompressed size when the header is absent.
+  const clen = Number(res.headers.get('content-length'));
+  feedBytes += Number.isFinite(clen) && clen > 0 ? clen : Buffer.byteLength(text);
+  return JSON.parse(text).ac || [];
+}
+
 async function poll() {
-  const src = SOURCES[sourceIdx];
-  const url = `${src.base}/${config.home.lat}/${config.home.lon}/${RADIUS_NM}`;
+  if (pollInFlight) return;
+  pollInFlight = true;
   try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(8000),
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    // Prefer Content-Length: that's compressed wire bytes (the feed gzips);
-    // fall back to decompressed size when the header is absent.
-    const clen = Number(res.headers.get('content-length'));
-    feedBytes += Number.isFinite(clen) && clen > 0 ? clen : Buffer.byteLength(text);
-    const body = JSON.parse(text);
-    const aircraft = normalize(body.ac || []);
+    await pollOnce();
+  } finally {
+    pollInFlight = false;
+  }
+}
+
+async function pollOnce() {
+  const src = SOURCES[sourceIdx];
+  try {
+    const ac = await fetchRegion(src, config.home.lat, config.home.lon, RADIUS_NM);
+    if (viewArea) {
+      await sleep(1100); // stay under the API's 1 req/s limit
+      try {
+        const extra = await fetchRegion(src, viewArea.lat, viewArea.lon, viewArea.radius_nm);
+        const seen = new Set(ac.map((a) => a.hex));
+        for (const a of extra) if (!seen.has(a.hex)) ac.push(a);
+      } catch (err) {
+        // view region is best-effort; home data still goes out
+        console.error(`[feed] view region failed (${err.message})`);
+      }
+    }
+    const aircraft = normalize(ac);
     lastSuccessAt = Date.now();
     consecutiveFailures = 0;
     lastPayload = {
@@ -204,6 +232,32 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(502, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'geocoder unreachable' }));
     }
+    return;
+  }
+
+  if (url.pathname === '/view' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        const v = JSON.parse(body || 'null');
+        if (v === null) {
+          viewArea = null;
+        } else {
+          const { lat, lon, radius_nm } = v;
+          if (typeof lat !== 'number' || typeof lon !== 'number' ||
+              typeof radius_nm !== 'number' || radius_nm <= 0 ||
+              Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('bad view');
+          viewArea = { lat, lon, radius_nm: Math.min(radius_nm, RADIUS_NM) };
+        }
+        poll(); // pick up the new region right away
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'expected JSON {lat, lon, radius_nm} or null' }));
+      }
+    });
     return;
   }
 
