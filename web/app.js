@@ -670,10 +670,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       ctx.translate(pt.x, pt.y);
       ctx.fillStyle = ctx.strokeStyle =
         mil ? COLORS.mil : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
+      ctx.rotate((t.shown.track * Math.PI) / 180);
       if (t.meta.heli) {
         drawHeli(ctx);
       } else {
-        ctx.rotate((t.shown.track * Math.PI) / 180);
         ctx.fill(PLANE);
       }
       ctx.restore();

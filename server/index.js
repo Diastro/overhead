@@ -59,6 +59,23 @@ function modelFor(ac) {
   return null;
 }
 
+// Common rotorcraft ICAO type designators. The emitter "A7" category is
+// unreliable (fixed-wing GA sometimes broadcasts it), so the type code wins
+// and category only decides when no type is known.
+const HELI_TYPES = new Set([
+  'R22', 'R44', 'R66', 'B06', 'B47G', 'B105', 'B212', 'B407', 'B412', 'B429',
+  'B430', 'B505', 'S61', 'S64', 'S76', 'S92', 'H46', 'H47', 'H53', 'H60',
+  'UH1', 'AH64', 'EC20', 'EC25', 'EC30', 'EC35', 'EC45', 'EC55', 'EC75',
+  'H125', 'H130', 'H135', 'H145', 'H155', 'H160', 'H175', 'AS32', 'AS3B',
+  'AS50', 'AS55', 'AS65', 'A109', 'A119', 'A139', 'A149', 'A169', 'A189',
+  'MD52', 'MD60', 'EXPL', 'MI8', 'MI17', 'KA32', 'LYNX', 'V22',
+]);
+
+function isHeli(ac) {
+  if (ac.t) return HELI_TYPES.has(ac.t.toUpperCase());
+  return ac.category === 'A7';
+}
+
 function normalize(raw) {
   const out = [];
   for (const ac of raw) {
@@ -83,7 +100,7 @@ function normalize(raw) {
       track: ac.track ?? ac.true_heading ?? null,
       vr: ac.baro_rate ?? ac.geom_rate ?? 0,
       category: ac.category || null,
-      heli: ac.category === 'A7',
+      heli: isHeli(ac),
       // dbFlags bit 1 = military per readsb db; ae-prefix hex = US military ICAO block
       mil: !!(ac.dbFlags & 1) || /^ae/i.test(ac.hex || ''),
       dst: ac.dst ?? null, // nm from home, computed by the API
