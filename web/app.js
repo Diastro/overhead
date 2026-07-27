@@ -511,7 +511,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   function drawBwBars() {
     if (!bwChart.classList.contains('open') || !bwMinutes.length) return;
     const dpr = window.devicePixelRatio || 1;
-    const W = 264, H = 56;
+    const W = 306, H = 56;
     if (bwMinCanvas.width !== W * dpr) {
       bwMinCanvas.width = W * dpr;
       bwMinCanvas.height = H * dpr;
@@ -546,7 +546,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   function drawBwChart() {
     if (!bwChart.classList.contains('open')) return;
     const dpr = window.devicePixelRatio || 1;
-    const W = 264, H = 84;
+    const W = 306, H = 84;
     if (bwCanvas.width !== W * dpr) {
       bwCanvas.width = W * dpr;
       bwCanvas.height = H * dpr;

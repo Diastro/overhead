@@ -317,7 +317,7 @@ body { background: var(--stage-bg); }
   display: none;
   flex-direction: column;
   gap: 4px;
-  width: 290px; /* fixed: content (mode notes) must not resize the panel */
+  width: 332px; /* fixed: content (mode notes, stat rows) must not resize the panel */
   padding: 10px 12px 8px;
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
