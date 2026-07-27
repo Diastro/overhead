@@ -131,6 +131,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // Effective view radius in miles (tracks slider AND manual pan/zoom) and the
   // too-wide banner: the feed only covers 50 mi around home.
   let currentViewMiles = vm.default;
+  let suppressRangeSync = false; // set during scripted zooms (military fly-by)
   const banner = document.getElementById('wide-banner');
   let lastSentView;
   let viewTimer = null;
@@ -142,6 +143,18 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const halfW = distNm(c.lat, c.lng, c.lat, east) / NM_PER_MI;
     const halfH = distNm(c.lat, c.lng, north, c.lng) / NM_PER_MI;
     currentViewMiles = Math.min(halfW, halfH);
+
+    // Keep the top-right slider in sync with mouse-wheel/pinch zoom: the
+    // label shows the true view miles, the thumb clamps to slider range.
+    if (!suppressRangeSync) {
+      const trueMi = Math.round(currentViewMiles);
+      const clamped = Math.max(vm.min, Math.min(vm.max, trueMi));
+      if (Number(rangeInput.value) !== clamped) {
+        rangeInput.value = clamped;
+        localStorage.setItem('overhead-view-miles', String(clamped));
+      }
+      rangeVal.textContent = trueMi;
+    }
 
     const corners = [
       [b.getNorth(), b.getEast()], [b.getNorth(), b.getWest()],
@@ -196,13 +209,17 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (distNm(HOME[0], HOME[1], ac.lat, ac.lon) > MAX_VIEW_MI * NM_PER_MI) return;
     milZoom.active = true;
     milZoom.lastAt = now;
+    const returnMiles = Number(rangeInput.value); // view to restore afterwards
+    suppressRangeSync = true;
     const nm = 3 * NM_PER_MI;
     map.flyToBounds(L.latLngBounds([
       project(ac.lat, ac.lon, 0, nm), project(ac.lat, ac.lon, 180, nm),
       project(ac.lat, ac.lon, 90, nm), project(ac.lat, ac.lon, 270, nm),
     ]), { duration: 1.6 });
     setTimeout(() => {
-      applyRange(Number(rangeInput.value)); // back to the home view
+      rangeInput.value = returnMiles;
+      applyRange(returnMiles); // back to the home view
+      suppressRangeSync = false;
       milZoom.active = false;
     }, 15000);
   }
