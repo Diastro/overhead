@@ -312,9 +312,16 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   });
   renderDataToggle();
 
-  // Airport markers (OurAirports data via the server) — off by default
-  const airportToggle = document.getElementById('airport-toggle');
-  let airportsOn = localStorage.getItem('overhead-airports') === '1';
+  // Layer visibility (bottom-right ◧ LAYERS panel), persisted per browser
+  const layersToggle = document.getElementById('layers-toggle');
+  const layersPanel = document.getElementById('layers-panel');
+  const LAYER_DEFAULTS = { aircraft: true, trails: true, blocks: true, airports: false, rings: true, scale: true };
+  let layers = { ...LAYER_DEFAULTS };
+  try {
+    layers = { ...LAYER_DEFAULTS, ...JSON.parse(localStorage.getItem('overhead-layers') || '{}') };
+  } catch { /* defaults */ }
+  if (localStorage.getItem('overhead-airports') === '1') layers.airports = true; // migrate old key
+
   let airports = [];
   async function loadAirports() {
     try {
@@ -322,18 +329,26 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (r.ok) airports = (await r.json()).airports || [];
     } catch { /* markers just stay absent */ }
   }
-  function renderAirportToggle() {
-    airportToggle.classList.toggle('open', airportsOn);
-    airportToggle.textContent = airportsOn ? '⊕ AIRPORTS ON' : '⊕ AIRPORTS';
-  }
-  airportToggle.addEventListener('click', () => {
-    airportsOn = !airportsOn;
-    localStorage.setItem('overhead-airports', airportsOn ? '1' : '0');
-    renderAirportToggle();
-    if (airportsOn && !airports.length) loadAirports();
+
+  const layerBoxes = [...layersPanel.querySelectorAll('input')];
+  layerBoxes.forEach((box) => {
+    box.checked = !!layers[box.dataset.layer];
+    box.addEventListener('change', () => {
+      layers[box.dataset.layer] = box.checked;
+      localStorage.setItem('overhead-layers', JSON.stringify(layers));
+      if (box.dataset.layer === 'airports' && box.checked && !airports.length) loadAirports();
+    });
   });
-  renderAirportToggle();
-  if (airportsOn) loadAirports();
+  layersToggle.addEventListener('click', () => {
+    const open = layersPanel.classList.toggle('open');
+    layersToggle.classList.toggle('open', open);
+    localStorage.setItem('overhead-panel-layers', open ? '1' : '0');
+  });
+  if (localStorage.getItem('overhead-panel-layers') === '1') {
+    layersPanel.classList.add('open');
+    layersToggle.classList.add('open');
+  }
+  if (layers.airports) loadAirports();
 
   // Collapsible list of aircraft currently inside the visible map area
   const listToggle = document.getElementById('list-toggle');
@@ -451,7 +466,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     HOME = [lat, lon];
     targets.clear(); // old area's aircraft vanish; next poll brings the new sky
     airports = [];
-    if (airportsOn) loadAirports();
+    if (layers.airports) loadAirports();
     rememberHome({ lat, lon, label });
     homeMsg.textContent = ('→ ' + label).slice(0, 36);
     map.flyTo(HOME, map.getZoom(), { duration: 2.2 }); // arcs out, then back in
@@ -1053,7 +1068,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       ctx.textAlign = 'left';
       ctx.globalAlpha = 1;
     }
-    // home marker
+  }
+
+  // Home marker draws regardless of the rings layer
+  function drawHome() {
+    const homePt = map.latLngToContainerPoint(HOME);
     ctx.fillStyle = COLORS.home;
     ctx.save();
     ctx.translate(homePt.x, homePt.y);
@@ -1139,14 +1158,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     lastFrame = now;
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
 
-    drawRings();
-    drawScale();
-    if (airportsOn && airports.length) drawAirports();
+    if (layers.rings) drawRings();
+    drawHome();
+    if (layers.scale) drawScale();
+    if (layers.airports && airports.length) drawAirports();
 
     let overheadCount = 0;
-    const homePt = map.latLngToContainerPoint(HOME);
+    const blockQueue = []; // blocks draw after every icon, so details sit on top
 
-    for (const t of targets.values()) {
+    if (layers.aircraft) for (const t of targets.values()) {
       const f = t.fix;
       // kinematic projection (arc + accel) plus a decaying correction offset —
       // no spring chase, so no lurch when sparse fixes arrive
@@ -1184,7 +1204,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
       // trail: purely time-based fade — fully gone at trail_fade_seconds (60 s)
       while (t.trail.length && nowMs - t.trail[0].at > TRAIL_FADE_MS) t.trail.shift();
-      if (t.trail.length && !dimmed) {
+      if (layers.trails && t.trail.length && !dimmed) {
         const base = mil ? COLORS.mil : police ? COLORS.police : overhead ? COLORS.amber : COLORS.trail;
         ctx.strokeStyle = base;
         ctx.lineWidth = 1.6;
@@ -1232,7 +1252,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // for aircraft inside the overhead ring, ALL for every airborne one.
       // Ground aircraft never show a block on their own (click for 7 s), but
       // airborne-and-slow is a hovering helicopter, not a parked plane.
-      let showBlock = !f.onGround && (dataMode === 'all' || overhead);
+      let showBlock = layers.blocks && !f.onGround && (dataMode === 'all' || overhead);
       let blockAlpha = 1;
       if (!showBlock && t.detailUntil) {
         const left = t.detailUntil - nowMs;
@@ -1255,11 +1275,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (showBlock) {
         const side = pt.x < canvas.clientWidth / 2 ? 'right' : 'left';
         const lines = blockLines(t);
-        drawBlock(pt.x, pt.y, side, lines, {
+        blockQueue.push([pt.x, pt.y, side, lines, {
           overhead, dimmed, mil, police, alpha: blockAlpha, width: blockWidth(t, lines),
-        });
+        }]);
       }
     }
+    for (const args of blockQueue) drawBlock(...args);
 
     updateBar(overheadCount);
     requestAnimationFrame(frame);

@@ -27,7 +27,15 @@
     <button id="list-toggle" type="button">✈ IN VIEW</button>
     <button id="home-toggle" type="button">⌂ HOME</button>
     <button id="data-toggle" type="button" title="Show data blocks for all aircraft, or only overhead when zoomed out">▤ DATA: OVERHEAD</button>
-    <button id="airport-toggle" type="button" title="Show airport markers (OurAirports database)">⊕ AIRPORTS</button>
+    <button id="layers-toggle" type="button" title="Show/hide map layers">◧ LAYERS</button>
+    <div id="layers-panel">
+      <label><input type="checkbox" data-layer="aircraft"> AIRCRAFT</label>
+      <label><input type="checkbox" data-layer="trails"> TRAILS</label>
+      <label><input type="checkbox" data-layer="blocks"> DATA BLOCKS</label>
+      <label><input type="checkbox" data-layer="airports"> AIRPORTS</label>
+      <label><input type="checkbox" data-layer="rings"> RANGE RINGS</label>
+      <label><input type="checkbox" data-layer="scale"> NM SCALE</label>
+    </div>
     <div id="home-panel">
       <label for="home-input">SET HOME — ADDRESS OR LAT,LON</label>
       <input id="home-input" type="text" placeholder="e.g. Seattle, WA" autocomplete="off">

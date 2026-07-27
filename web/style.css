@@ -144,7 +144,7 @@ body { background: var(--stage-bg); }
   cursor: pointer;
 }
 
-#list-toggle, #home-toggle, #data-toggle, #airport-toggle {
+#list-toggle, #home-toggle, #data-toggle, #layers-toggle {
   position: absolute;
   top: 14px;
   z-index: 600;
@@ -161,13 +161,45 @@ body { background: var(--stage-bg); }
 #list-toggle { left: 16px; }
 #home-toggle { left: 132px; }
 #data-toggle { left: 230px; }
-#airport-toggle { left: 388px; }
+#layers-toggle {
+  top: auto;
+  left: auto;
+  bottom: 34px;
+  right: 16px;
+}
 #list-toggle:hover, #list-toggle.open, #home-toggle:hover,
 #data-toggle:hover, #data-toggle.open,
-#airport-toggle:hover, #airport-toggle.open {
+#layers-toggle:hover, #layers-toggle.open {
   color: var(--bar-bright);
   border-color: var(--input-border);
 }
+
+#layers-panel {
+  position: absolute;
+  bottom: 72px;
+  right: 16px;
+  z-index: 650;
+  display: none;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 16px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--bar-ink);
+}
+#layers-panel.open { display: flex; }
+#layers-panel label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+#layers-panel label:hover { color: var(--bar-bright); }
+#layers-panel input { accent-color: var(--accent); cursor: pointer; }
 
 #list-panel {
   position: absolute;
