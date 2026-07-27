@@ -86,6 +86,99 @@ html, body {
   cursor: pointer;
 }
 
+#list-toggle {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  z-index: 600;
+  padding: 9px 14px;
+  background: rgba(5, 8, 13, 0.82);
+  border: 1px solid #1c2c3e;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--bar-ink);
+  cursor: pointer;
+}
+#list-toggle:hover, #list-toggle.open { color: var(--bar-bright); border-color: #2c465e; }
+
+#list-panel {
+  position: absolute;
+  top: 58px;
+  left: 16px;
+  bottom: 42px;
+  z-index: 600;
+  width: 308px;
+  display: none;
+  flex-direction: column;
+  background: rgba(5, 8, 13, 0.88);
+  border: 1px solid #1c2c3e;
+  border-radius: 6px;
+  font-family: var(--mono);
+  color: var(--bar-ink);
+  overflow: hidden;
+}
+#list-panel.open { display: flex; }
+#list-panel h3 {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--bar-bright);
+  border-bottom: 1px solid #14202e;
+}
+#ac-list {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  overflow-y: auto;
+}
+#ac-list li {
+  padding: 8px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  border-bottom: 1px solid #0e1826;
+}
+#ac-list li:hover { background: #0e1c2c; }
+#ac-list .l1 { display: flex; justify-content: space-between; color: var(--accent); font-weight: 700; }
+#ac-list .l1 .dist { color: var(--bar-ink); font-weight: 400; }
+#ac-list .l2 { color: #8398ad; font-size: 11px; }
+#ac-list li.mil .l1 { color: #ff6a55; }
+#ac-list li.overhead .l1 { color: #ffd166; }
+
+#wide-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 700;
+  display: none;
+  padding: 9px 18px;
+  background: rgba(46, 26, 8, 0.92);
+  border: 1px solid #c9962e;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: #ffd166;
+  white-space: nowrap;
+}
+#wide-banner.show { display: block; }
+
+#bw {
+  position: absolute;
+  bottom: 10px;
+  left: 16px;
+  z-index: 600;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #4a5c70;
+}
+
 /* keep required OSM/CARTO attribution, quiet it down */
 .leaflet-control-attribution {
   background: rgba(5, 8, 13, 0.6) !important;

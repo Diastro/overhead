@@ -84,6 +84,8 @@ function normalize(raw) {
       vr: ac.baro_rate ?? ac.geom_rate ?? 0,
       category: ac.category || null,
       heli: ac.category === 'A7',
+      // dbFlags bit 1 = military per readsb db; ae-prefix hex = US military ICAO block
+      mil: !!(ac.dbFlags & 1) || /^ae/i.test(ac.hex || ''),
       dst: ac.dst ?? null, // nm from home, computed by the API
       seenPos: ac.seen_pos ?? null,
     });
@@ -97,18 +99,25 @@ let sourceIdx = 0;
 let lastPayload = null;
 let lastSuccessAt = 0;
 let consecutiveFailures = 0;
+let feedBytes = 0; // cumulative internet bytes pulled from the feed
 const clients = new Set();
+
+// The display promises coverage up to 50 statute miles around home — clamp the
+// feed query to that (in nm) no matter what config says.
+const RADIUS_NM = Math.min(config.radius_nm, Math.round(50 * 0.868976));
 
 async function poll() {
   const src = SOURCES[sourceIdx];
-  const url = `${src.base}/${config.home.lat}/${config.home.lon}/${config.radius_nm}`;
+  const url = `${src.base}/${config.home.lat}/${config.home.lon}/${RADIUS_NM}`;
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(8000),
       headers: { Accept: 'application/json' },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await res.json();
+    const text = await res.text();
+    feedBytes += Buffer.byteLength(text);
+    const body = JSON.parse(text);
     const aircraft = normalize(body.ac || []);
     lastSuccessAt = Date.now();
     consecutiveFailures = 0;
@@ -116,6 +125,7 @@ async function poll() {
       now: lastSuccessAt,
       source: src.name,
       ok: true,
+      feedBytes,
       aircraft,
     };
     broadcast(lastPayload);
@@ -196,7 +206,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(config.port, () => {
   console.log(`Overhead tracker on http://localhost:${config.port}`);
-  console.log(`Home ${config.home.lat}, ${config.home.lon} · radius ${config.radius_nm} nm · poll ${config.poll_seconds}s`);
+  console.log(`Home ${config.home.lat}, ${config.home.lon} · radius ${RADIUS_NM} nm · poll ${config.poll_seconds}s`);
   poll();
   setInterval(poll, Math.max(2, config.poll_seconds) * 1000);
 });

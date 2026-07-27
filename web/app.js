@@ -86,6 +86,99 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   rangeInput.addEventListener('input', () => applyRange(Number(rangeInput.value)));
   applyRange(Number(rangeInput.value));
 
+  // Effective view radius in miles (tracks slider AND manual pan/zoom) and the
+  // too-wide banner: the feed only covers 50 mi around home.
+  let currentViewMiles = vm.default;
+  const banner = document.getElementById('wide-banner');
+  function onViewChanged() {
+    const b = map.getBounds();
+    const c = map.getCenter();
+    const east = b.getEast();
+    const north = b.getNorth();
+    const halfW = distNm(c.lat, c.lng, c.lat, east) / NM_PER_MI;
+    const halfH = distNm(c.lat, c.lng, north, c.lng) / NM_PER_MI;
+    currentViewMiles = Math.min(halfW, halfH);
+    // farthest visible corner from home
+    const corners = [
+      [b.getNorth(), b.getEast()], [b.getNorth(), b.getWest()],
+      [b.getSouth(), b.getEast()], [b.getSouth(), b.getWest()],
+    ];
+    const maxMi = Math.max(...corners.map(([la, lo]) => distNm(HOME[0], HOME[1], la, lo))) / NM_PER_MI;
+    banner.classList.toggle('show', maxMi > MAX_VIEW_MI);
+  }
+  map.on('zoomend moveend resize', onViewChanged);
+  onViewChanged();
+
+  // Click/tap an aircraft to show its data block for a few seconds
+  map.on('click', (e) => {
+    let best = null;
+    let bestD = 30; // px hit radius
+    for (const t of targets.values()) {
+      const p = map.latLngToContainerPoint([t.shown.lat, t.shown.lon]);
+      const d = Math.hypot(p.x - e.containerPoint.x, p.y - e.containerPoint.y);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (best) best.detailUntil = Date.now() + DETAIL_MS;
+  });
+
+  // Collapsible list of aircraft currently inside the visible map area
+  const listToggle = document.getElementById('list-toggle');
+  const listPanel = document.getElementById('list-panel');
+  const listEl = document.getElementById('ac-list');
+  listToggle.addEventListener('click', () => {
+    const open = listPanel.classList.toggle('open');
+    listToggle.classList.toggle('open', open);
+    if (open) renderList();
+  });
+  function renderList() {
+    if (!listPanel.classList.contains('open')) return;
+    const bounds = map.getBounds();
+    const rows = [];
+    for (const t of targets.values()) {
+      if (!bounds.contains([t.shown.lat, t.shown.lon])) continue;
+      rows.push([distNm(HOME[0], HOME[1], t.shown.lat, t.shown.lon), t]);
+    }
+    rows.sort((a, b) => a[0] - b[0]);
+    listEl.replaceChildren(...rows.map(([d, t]) => {
+      const m = t.meta;
+      const li = document.createElement('li');
+      const dMi = d / NM_PER_MI;
+      if (m.mil) li.classList.add('mil');
+      else if (!t.fix.onGround && d <= (config.overhead_nm || 5)) li.classList.add('overhead');
+      const l1 = document.createElement('div');
+      l1.className = 'l1';
+      l1.textContent = m.callsign || m.reg || m.hex.toUpperCase();
+      const dist = document.createElement('span');
+      dist.className = 'dist';
+      dist.textContent = `${dMi.toFixed(1)} mi`;
+      l1.appendChild(dist);
+      const l2 = document.createElement('div');
+      l2.className = 'l2';
+      const alt = t.fix.onGround ? 'ground' : t.fix.alt != null ? `${t.fix.alt.toLocaleString()} ft` : 'alt n/a';
+      l2.textContent = [m.type || '—', alt, m.operator || ''].filter(Boolean).join(' · ');
+      li.append(l1, l2);
+      li.addEventListener('click', () => { t.detailUntil = Date.now() + DETAIL_MS; });
+      return li;
+    }));
+  }
+  setInterval(renderList, 1000);
+
+  // Bandwidth used by the live feed (reported by the server per poll)
+  const bwEl = document.getElementById('bw');
+  let bwPrev = null;
+  function updateBandwidth(feedBytes) {
+    if (feedBytes == null) return;
+    const now = Date.now();
+    let rate = '';
+    if (bwPrev && feedBytes > bwPrev.bytes) {
+      const kbs = (feedBytes - bwPrev.bytes) / 1024 / ((now - bwPrev.at) / 1000);
+      rate = ` · ${kbs.toFixed(1)} KB/s`;
+    }
+    bwPrev = { bytes: feedBytes, at: now };
+    const mb = feedBytes / 1048576;
+    bwEl.textContent = `FEED DATA: ${mb < 1 ? (feedBytes / 1024).toFixed(0) + ' KB' : mb.toFixed(1) + ' MB'}${rate}`;
+  }
+
   // ---------------------------------------------------------------- targets
   // hex -> { fix, shown: {lat, lon, track}, trail: [[lat,lon],...], meta, lastSeen }
   const targets = new Map();
@@ -95,6 +188,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   es.onmessage = (e) => {
     const payload = JSON.parse(e.data);
     feedState.source = payload.source;
+    updateBandwidth(payload.feedBytes);
     if (!payload.ok || !payload.aircraft) { feedState.ok = false; return; }
     feedState.ok = true;
     feedState.lastOkAt = Date.now();
@@ -118,8 +212,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       t.meta = ac;
       t.lastSeen = Date.now();
       const last = t.trail[t.trail.length - 1];
-      if (!last || distNm(last[0], last[1], ac.lat, ac.lon) > 0.05) {
-        t.trail.push([ac.lat, ac.lon]);
+      if (!last || distNm(last.lat, last.lon, ac.lat, ac.lon) > 0.05) {
+        t.trail.push({ lat: ac.lat, lon: ac.lon, at: Date.now() });
         if (t.trail.length > (config.trail_length || 40)) t.trail.shift();
       }
     }
@@ -154,9 +248,17 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     blockBg: 'rgba(12,24,38,0.92)', blockEdge: '#2c465e',
     line1: '#7fd4ff', line2: '#d6e6f5', line3: '#f0c674', line4: '#93a7bc',
     amber: '#ffd166', amberEdge: '#c9962e', amberBg: 'rgba(26,20,8,0.94)',
+    mil: '#ff6a55', milEdge: '#c94a38', milBg: 'rgba(30,10,8,0.93)',
     dim: '#6c7f93',
     ring: '#2b5c52', ringText: '#3f7a6e', home: '#e8f0f7',
   };
+
+  const NM_PER_MI = 0.868976;
+  const TRAIL_FADE_MS = (config.trail_fade_seconds ?? 30) * 1000;
+  const TRAIL_FADE_NM = (config.trail_fade_miles ?? 2) * NM_PER_MI;
+  const DETAIL_MS = (config.detail_click_seconds ?? 7) * 1000;
+  const DETAIL_VIEW_MI = config.detail_always_below_view_miles ?? 10;
+  const MAX_VIEW_MI = 50;
 
   function fmtAlt(t) {
     if (t.fix.onGround) return 'GROUND';
@@ -176,51 +278,60 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     return [id, model, op, state];
   }
 
-  function drawBlock(x, y, side, lines, overhead, dimmed) {
+  function drawBlock(x, y, side, lines, opts) {
+    const { overhead, dimmed, mil, alpha = 1 } = opts;
     ctx.font = MONO;
     const padX = 12, lineH = 19, padTop = 8;
     let w = 0;
     for (const s of lines) w = Math.max(w, ctx.measureText(s).width);
     w += padX * 2;
-    const tagH = overhead ? 20 : 0;
+    const tagged = overhead || mil;
+    const tagH = tagged ? 20 : 0;
     const h = padTop * 2 + lineH * lines.length + tagH - 4;
 
     const bx = side === 'right' ? x + 26 : x - 26 - w;
     const by = y - h / 2;
 
+    const edge = mil ? COLORS.milEdge : overhead ? COLORS.amberEdge : COLORS.blockEdge;
+    const bg = mil ? COLORS.milBg : overhead ? COLORS.amberBg : COLORS.blockBg;
+
+    ctx.globalAlpha = alpha * (dimmed ? 0.55 : 1);
+
     // leader line to nearest block corner
-    ctx.strokeStyle = overhead ? COLORS.amberEdge : COLORS.leader;
+    ctx.strokeStyle = tagged ? edge : COLORS.leader;
     ctx.lineWidth = 1.2;
     ctx.beginPath();
     ctx.moveTo(x + (side === 'right' ? 12 : -12), y);
     ctx.lineTo(side === 'right' ? bx : bx + w, by + h / 2);
     ctx.stroke();
 
-    ctx.globalAlpha = dimmed ? 0.55 : 1;
-    ctx.fillStyle = overhead ? COLORS.amberBg : COLORS.blockBg;
-    ctx.strokeStyle = overhead ? COLORS.amberEdge : COLORS.blockEdge;
-    ctx.lineWidth = overhead ? 1.4 : 1;
+    ctx.fillStyle = bg;
+    ctx.strokeStyle = edge;
+    ctx.lineWidth = tagged ? 1.4 : 1;
     ctx.beginPath();
     ctx.roundRect(bx, by, w, h, 3);
     ctx.fill();
     ctx.stroke();
 
     let ty = by + padTop;
-    if (overhead) {
-      ctx.fillStyle = COLORS.amberEdge;
+    if (tagged) {
+      ctx.fillStyle = edge;
       ctx.beginPath();
       ctx.roundRect(bx, by, w, 20, [3, 3, 0, 0]);
       ctx.fill();
       ctx.fillStyle = '#140f04';
       ctx.font = '700 11px ui-monospace, "SF Mono", Menlo, monospace';
       ctx.textBaseline = 'middle';
-      ctx.fillText('O V E R H E A D', bx + padX, by + 10.5);
+      const tag = mil && overhead ? 'M I L · O V E R H E A D' : mil ? 'M I L I T A R Y' : 'O V E R H E A D';
+      ctx.fillText(tag, bx + padX, by + 10.5);
       ty += tagH;
     }
 
-    const palette = overhead
-      ? [COLORS.amber, '#f3e3bd', COLORS.line3, '#bfae87']
-      : [COLORS.line1, COLORS.line2, COLORS.line3, COLORS.line4];
+    const palette = mil
+      ? ['#ff9c8c', '#f3d6d0', '#f0b3a6', '#c09a92']
+      : overhead
+        ? [COLORS.amber, '#f3e3bd', COLORS.line3, '#bfae87']
+        : [COLORS.line1, COLORS.line2, COLORS.line3, COLORS.line4];
     ctx.textBaseline = 'top';
     lines.forEach((s, i) => {
       ctx.font = i === 0 ? MONO_BOLD : MONO;
@@ -292,26 +403,44 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const overhead = !f.onGround && dHome <= (config.overhead_nm || 5);
       if (overhead) overheadCount++;
       const dimmed = f.onGround;
+      const mil = !!t.meta.mil;
+      const nowMs = Date.now();
 
-      // trail
-      if (t.trail.length > 1 && !dimmed) {
-        ctx.strokeStyle = overhead ? COLORS.amber : COLORS.trail;
-        ctx.globalAlpha = 0.35;
+      // trail: fades with age (30 s) and distance behind the aircraft (2 mi),
+      // whichever limit bites first
+      while (t.trail.length && nowMs - t.trail[0].at > TRAIL_FADE_MS) t.trail.shift();
+      if (t.trail.length && !dimmed) {
+        const base = mil ? COLORS.mil : overhead ? COLORS.amber : COLORS.trail;
+        ctx.strokeStyle = base;
         ctx.lineWidth = 1.6;
-        ctx.beginPath();
-        t.trail.forEach((ll, i) => {
-          const p = map.latLngToContainerPoint(ll);
-          i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
-        });
-        ctx.lineTo(pt.x, pt.y);
-        ctx.stroke();
+        let prev = null;
+        for (let i = 0; i <= t.trail.length; i++) {
+          const p = i < t.trail.length
+            ? t.trail[i]
+            : { lat: t.shown.lat, lon: t.shown.lon, at: nowMs };
+          const cp = map.latLngToContainerPoint([p.lat, p.lon]);
+          if (prev) {
+            const ageF = 1 - (nowMs - p.at) / TRAIL_FADE_MS;
+            const distF = 1 - distNm(p.lat, p.lon, t.shown.lat, t.shown.lon) / TRAIL_FADE_NM;
+            const a = Math.max(0, Math.min(ageF, distF)) * 0.5;
+            if (a > 0.02) {
+              ctx.globalAlpha = a;
+              ctx.beginPath();
+              ctx.moveTo(prev.x, prev.y);
+              ctx.lineTo(cp.x, cp.y);
+              ctx.stroke();
+            }
+          }
+          prev = cp;
+        }
         ctx.globalAlpha = 1;
       }
 
-      // icon
+      // icon — military is always red, wherever it is
       ctx.save();
       ctx.translate(pt.x, pt.y);
-      ctx.fillStyle = ctx.strokeStyle = dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
+      ctx.fillStyle = ctx.strokeStyle =
+        mil ? COLORS.mil : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
       if (t.meta.heli) {
         drawHeli(ctx);
       } else {
@@ -320,9 +449,23 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       }
       ctx.restore();
 
-      // data block on the side facing away from screen center
-      const side = pt.x < canvas.clientWidth / 2 ? 'right' : 'left';
-      drawBlock(pt.x, pt.y, side, blockLines(t), overhead, dimmed);
+      // Data block: at wide view (>10 mi) only overhead targets keep their
+      // block, and aircraft that aren't moving never show one on their own —
+      // anything hidden shows a block for 7 s after a click/tap.
+      const stationary = f.gs < 3;
+      let showBlock = !stationary && (overhead || currentViewMiles <= DETAIL_VIEW_MI);
+      let blockAlpha = 1;
+      if (!showBlock && t.detailUntil) {
+        const left = t.detailUntil - nowMs;
+        if (left > 0) {
+          showBlock = true;
+          blockAlpha = Math.min(1, left / 600); // fade out over the last 0.6 s
+        }
+      }
+      if (showBlock) {
+        const side = pt.x < canvas.clientWidth / 2 ? 'right' : 'left';
+        drawBlock(pt.x, pt.y, side, blockLines(t), { overhead, dimmed, mil, alpha: blockAlpha });
+      }
     }
 
     updateBar(overheadCount);

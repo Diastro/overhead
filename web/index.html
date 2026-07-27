@@ -21,6 +21,13 @@
       <label for="range">VIEW <b id="range-val">15</b> MI</label>
       <input type="range" id="range" min="4" max="40" step="1" value="15">
     </div>
+    <button id="list-toggle" type="button">✈ IN VIEW</button>
+    <aside id="list-panel">
+      <h3>AIRCRAFT IN VIEW</h3>
+      <ul id="ac-list"></ul>
+    </aside>
+    <div id="wide-banner">VIEW TOO WIDE — TRACKING COVERS 50 MI AROUND HOME</div>
+    <div id="bw" title="Internet data used by the live feed (map tiles not included)">FEED DATA: —</div>
   </main>
   <script src="/vendor/leaflet.js"></script>
   <script src="/app.js"></script>
