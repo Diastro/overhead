@@ -219,38 +219,70 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const homeInput = document.getElementById('home-input');
   const homeSetBtn = document.getElementById('home-set');
   const homeMsg = document.getElementById('home-msg');
+  const homeRecent = document.getElementById('home-recent');
   homeToggle.addEventListener('click', () => {
-    if (homePanel.classList.toggle('open')) homeInput.focus();
+    if (homePanel.classList.toggle('open')) {
+      renderHomeHistory();
+      homeInput.focus();
+    }
   });
+
+  // Last 3 valid home entries, persisted per browser
+  function loadHomeHistory() {
+    try { return JSON.parse(localStorage.getItem('overhead-home-history')) || []; }
+    catch { return []; }
+  }
+  function renderHomeHistory() {
+    const h = loadHomeHistory();
+    homeRecent.replaceChildren(...h.map((entry) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'recent';
+      b.textContent = entry.label;
+      b.title = entry.label;
+      b.addEventListener('click', () => applyHome(entry.lat, entry.lon, entry.label));
+      return b;
+    }));
+    homeRecent.style.display = h.length ? 'flex' : 'none';
+  }
+  function rememberHome(entry) {
+    const h = [entry, ...loadHomeHistory().filter((e) => e.label !== entry.label)].slice(0, 3);
+    localStorage.setItem('overhead-home-history', JSON.stringify(h));
+    renderHomeHistory();
+  }
+
+  async function applyHome(lat, lon, label) {
+    const save = await fetch('/home', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lon }),
+    });
+    if (!save.ok) throw new Error('could not save home');
+    HOME = [lat, lon];
+    targets.clear(); // old area's aircraft vanish; next poll brings the new sky
+    rememberHome({ lat, lon, label });
+    homeMsg.textContent = ('→ ' + label).slice(0, 36);
+    map.flyTo(HOME, map.getZoom(), { duration: 2.2 }); // arcs out, then back in
+    setTimeout(() => {
+      homePanel.classList.remove('open');
+      homeMsg.textContent = '';
+    }, 2600);
+  }
+
   async function setHome() {
     const q = homeInput.value.trim();
     if (!q) return;
     homeMsg.textContent = 'LOOKING UP…';
     try {
-      let lat, lon, label = null;
       const m = q.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
       if (m) {
-        lat = Number(m[1]);
-        lon = Number(m[2]);
+        await applyHome(Number(m[1]), Number(m[2]), q);
       } else {
         const r = await fetch('/geocode?q=' + encodeURIComponent(q));
         if (!r.ok) throw new Error('address not found');
-        ({ lat, lon, label } = await r.json());
+        const g = await r.json();
+        await applyHome(g.lat, g.lon, q); // remember what the user typed
       }
-      const save = await fetch('/home', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat, lon }),
-      });
-      if (!save.ok) throw new Error('could not save home');
-      HOME = [lat, lon];
-      targets.clear(); // old area's aircraft vanish; next poll brings the new sky
-      homeMsg.textContent = label ? ('→ ' + label).slice(0, 36) : 'HOME UPDATED';
-      map.flyTo(HOME, map.getZoom(), { duration: 2.2 }); // arcs out, then back in
-      setTimeout(() => {
-        homePanel.classList.remove('open');
-        homeMsg.textContent = '';
-      }, 2600);
     } catch (err) {
       homeMsg.textContent = String(err.message || err).toUpperCase();
     }
@@ -722,6 +754,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const stale = Date.now() - feedState.lastOkAt;
     const cls = feedState.lastOkAt === 0 ? '' : stale < 10000 ? 'ok' : stale < 30000 ? 'warn' : 'bad';
     el.dot.className = 'dot ' + cls;
+    document.getElementById('bar').classList.toggle('stalled', cls === 'warn' || cls === 'bad');
     el.feed.textContent = cls === 'bad' || cls === 'warn'
       ? `FEED STALE ${Math.round(stale / 1000)}s`
       : `FEED: ${feedState.source.toUpperCase()}`;

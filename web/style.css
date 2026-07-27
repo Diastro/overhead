@@ -20,6 +20,7 @@ body {
   --input-bg: #0a1420;
   --input-border: #2c465e;
   --btn-bg: #14283c;
+  --stall-flash: #4a1410;
 }
 body.light {
   --stage-bg: #dfe6ec;
@@ -38,6 +39,7 @@ body.light {
   --input-bg: #ffffff;
   --input-border: #a8bccc;
   --btn-bg: #e2ebf2;
+  --stall-flash: #f3cdc7;
 }
 
 * { box-sizing: border-box; }
@@ -64,6 +66,14 @@ body { background: var(--stage-bg); }
   letter-spacing: 0.08em;
   color: var(--bar-ink);
   border-bottom: 1px solid var(--panel-line);
+}
+#bar.stalled { animation: barflash 3s ease-in-out infinite; }
+@keyframes barflash {
+  0%, 100% { background: var(--bar-bg); }
+  50% { background: var(--stall-flash); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #bar.stalled { animation: none; background: var(--stall-flash); }
 }
 #bar .brand { color: var(--bar-bright); font-weight: 700; letter-spacing: 0.22em; }
 #bar .brand span { color: var(--accent); }
@@ -238,6 +248,29 @@ body { background: var(--stage-bg); }
 }
 #home-panel #home-set:hover { background: var(--hover-bg); }
 #home-msg { font-size: 10.5px; color: var(--warn); letter-spacing: 0.06em; }
+#home-recent { display: none; flex-direction: column; gap: 4px; margin-top: 2px; }
+#home-recent::before {
+  content: 'RECENT';
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+#home-recent .recent {
+  padding: 6px 10px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--panel-line);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--bar-ink);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#home-recent .recent:hover { color: var(--bar-bright); border-color: var(--input-border); background: var(--hover-bg); }
 
 #wide-banner {
   position: absolute;
