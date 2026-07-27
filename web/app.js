@@ -1039,12 +1039,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       }
       ctx.restore();
 
-      // Data block: at wide view (>10 mi) only overhead targets keep their
-      // block, and aircraft on the ground or not moving never show one on
-      // their own — anything hidden shows a block for 7 s after a click/tap.
+      // Data block: the top-left toggle decides — OVERHEAD shows blocks only
+      // for aircraft inside the overhead ring, ALL for every airborne one.
+      // Ground/stationary aircraft never show a block on their own; anything
+      // hidden shows one for 7 s after a click/tap.
       const stationary = f.gs < 3;
-      let showBlock = !stationary && !f.onGround &&
-        (dataMode === 'all' || overhead || currentViewMiles <= DETAIL_VIEW_MI);
+      let showBlock = !stationary && !f.onGround && (dataMode === 'all' || overhead);
       let blockAlpha = 1;
       if (!showBlock && t.detailUntil) {
         const left = t.detailUntil - nowMs;
