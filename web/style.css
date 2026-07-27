@@ -21,6 +21,7 @@ body {
   --input-border: #2c465e;
   --btn-bg: #14283c;
   --stall-flash: #4a1410;
+  --police: #5d8bff;
 }
 body.light {
   /* faded pastels over warm ivory — pairs with the Voyager basemap */
@@ -41,6 +42,7 @@ body.light {
   --input-border: #c9bda4;
   --btn-bg: #ecdfc8;
   --stall-flash: #f3cdc7;
+  --police: #2c50c8;
 }
 
 * { box-sizing: border-box; }
@@ -209,6 +211,7 @@ body { background: var(--stage-bg); }
 #ac-list .l1 .dist { color: var(--bar-ink); font-weight: 400; }
 #ac-list .l2 { color: var(--muted); font-size: 11px; }
 #ac-list li.mil .l1 { color: var(--bad); }
+#ac-list li.police .l1 { color: var(--police); }
 #ac-list li.overhead .l1 { color: var(--warn); }
 
 #home-panel {

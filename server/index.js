@@ -92,6 +92,10 @@ function isHeli(ac) {
   return ac.category === 'A7';
 }
 
+// Law-enforcement operators (US + Canada); "Civil Air Patrol" is excluded
+// separately — it matches PATROL but isn't police.
+const POLICE_RE = /(POLICE|SHERIFF|PATROL|RCMP|SURETE|SÛRETÉ|GENDARMERIE|CONSTABULARY|PUBLIC SAFETY|LAW ENFORCEMENT)/;
+
 function normalize(raw) {
   const out = [];
   for (const ac of raw) {
@@ -102,6 +106,7 @@ function normalize(raw) {
     if (onGround && !config.show_ground_traffic) continue;
     const callsign = (ac.flight || '').trim().toUpperCase() || null;
     const airline = callsign ? airlineFor(callsign) : null;
+    const opRaw = (ac.ownOp || '').toUpperCase();
     out.push({
       hex: ac.hex,
       callsign,
@@ -121,8 +126,10 @@ function normalize(raw) {
       vr: ac.baro_rate ?? ac.geom_rate ?? 0,
       category: ac.category || null,
       heli: isHeli(ac),
-      // dbFlags bit 1 = military per readsb db; ae-prefix hex = US military ICAO block
-      mil: !!(ac.dbFlags & 1) || /^ae/i.test(ac.hex || ''),
+      // dbFlags bit 1 = military per readsb db; ae-prefix hex = US military
+      // ICAO block; Coast Guard is treated as military per display policy
+      mil: !!(ac.dbFlags & 1) || /^ae/i.test(ac.hex || '') || opRaw.includes('COAST GUARD'),
+      police: POLICE_RE.test(opRaw) && !opRaw.includes('CIVIL AIR PATROL'),
       dst: ac.dst ?? null, // nm from home, computed by the API
       seenPos: ac.seen_pos ?? null,
     });

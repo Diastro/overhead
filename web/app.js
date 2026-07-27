@@ -21,6 +21,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // Shared constants — keep at the top: init code below runs immediately and
   // consts are not hoisted (a TDZ crash here bricks the whole app).
   const NM_PER_MI = 0.868976;
+  const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const TRAIL_FADE_MS = (config.trail_fade_seconds ?? 60) * 1000;
   const DETAIL_MS = (config.detail_click_seconds ?? 7) * 1000;
   const MAX_VIEW_MI = 50;
@@ -307,6 +308,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const dMi = d / NM_PER_MI;
       li.dataset.hex = m.hex;
       if (m.mil) li.classList.add('mil');
+      else if (m.police) li.classList.add('police');
       else if (!t.fix.onGround && d <= (config.overhead_nm || 5)) li.classList.add('overhead');
       const l1 = document.createElement('div');
       l1.className = 'l1';
@@ -780,6 +782,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       chartMuted: '#5a6c7e',
       chartLow: '#2a5f83', chartHigh: '#7fd4ff', chartPeak: '#ffd166',
       vsUp: '#35d07f', vsDown: '#ff6a55', vsFlat: '#8092a4',
+      police: '#5d8bff', policeEdge: '#3f6ae0', policeBg: 'rgba(10,14,34,0.93)',
+      policeFlash: '#cfe0ff',
+      textPolice: ['#9db8ff', '#dbe4ff', '#b9c8f5', '#8fa0d8'],
     },
     light: {
       icon: '#3a7ca5', trail: '#6aa5c8', leader: '#a3a08c',
@@ -795,6 +800,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       chartMuted: '#9aa1a8',
       chartLow: '#a8cbe0', chartHigh: '#2a6fae', chartPeak: '#cf8a12',
       vsUp: '#2e8a5c', vsDown: '#c0342a', vsFlat: '#8a94a0',
+      police: '#2c50c8', policeEdge: '#2c50c8', policeBg: 'rgba(233,238,252,0.96)',
+      policeFlash: '#7fa0f0',
+      textPolice: ['#22409f', '#2c3a55', '#3f57a8', '#5a6a95'],
     },
   };
   let COLORS = THEMES.dark;
@@ -853,19 +861,21 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
 
   function drawBlock(x, y, side, lines, opts) {
-    const { overhead, dimmed, mil, alpha = 1 } = opts;
+    const { overhead, dimmed, mil, police, alpha = 1 } = opts;
     ctx.font = MONO;
     const padX = 12, lineH = 19, padTop = 8;
     const w = opts.width;
-    const tagged = overhead || mil;
+    const tagged = overhead || mil || police;
     const tagH = tagged ? 20 : 0;
     const h = padTop * 2 + lineH * lines.length + tagH - 4;
 
     const bx = side === 'right' ? x + 26 : x - 26 - w;
     const by = y - h / 2;
 
-    const edge = mil ? COLORS.milEdge : overhead ? COLORS.amberEdge : COLORS.blockEdge;
-    const bg = mil ? COLORS.milBg : overhead ? COLORS.amberBg : COLORS.blockBg;
+    const edge = mil ? COLORS.milEdge : police ? COLORS.policeEdge
+      : overhead ? COLORS.amberEdge : COLORS.blockEdge;
+    const bg = mil ? COLORS.milBg : police ? COLORS.policeBg
+      : overhead ? COLORS.amberBg : COLORS.blockBg;
 
     ctx.globalAlpha = alpha * (dimmed ? 0.55 : 1);
 
@@ -894,12 +904,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       ctx.fillStyle = COLORS.tagText;
       ctx.font = '700 11px ui-monospace, "SF Mono", Menlo, monospace';
       ctx.textBaseline = 'middle';
-      const tag = mil && overhead ? 'M I L · O V E R H E A D' : mil ? 'M I L I T A R Y' : 'O V E R H E A D';
+      const tag = mil && overhead ? 'M I L · O V E R H E A D' : mil ? 'M I L I T A R Y'
+        : police && overhead ? 'P O L I C E · O V E R H E A D' : police ? 'P O L I C E'
+        : 'O V E R H E A D';
       ctx.fillText(tag, bx + padX, by + 10.5);
       ty += tagH;
     }
 
-    const palette = mil ? COLORS.textMil : overhead ? COLORS.textOverhead : COLORS.textNormal;
+    const palette = mil ? COLORS.textMil : police ? COLORS.textPolice
+      : overhead ? COLORS.textOverhead : COLORS.textNormal;
     ctx.textBaseline = 'top';
     lines.forEach((s, i) => {
       ctx.font = i === 0 ? MONO_BOLD : MONO;
@@ -1065,12 +1078,13 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (overhead) overheadCount++;
       const dimmed = f.onGround;
       const mil = !!t.meta.mil;
+      const police = !!t.meta.police && !mil;
       const nowMs = Date.now();
 
       // trail: purely time-based fade — fully gone at trail_fade_seconds (60 s)
       while (t.trail.length && nowMs - t.trail[0].at > TRAIL_FADE_MS) t.trail.shift();
       if (t.trail.length && !dimmed) {
-        const base = mil ? COLORS.mil : overhead ? COLORS.amber : COLORS.trail;
+        const base = mil ? COLORS.mil : police ? COLORS.police : overhead ? COLORS.amber : COLORS.trail;
         ctx.strokeStyle = base;
         ctx.lineWidth = 1.6;
         let prev = null;
@@ -1095,11 +1109,14 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         ctx.globalAlpha = 1;
       }
 
-      // icon — military is always red, wherever it is
+      // icon — military always red; police flash blue (steady blue under
+      // prefers-reduced-motion)
       ctx.save();
       ctx.translate(pt.x, pt.y);
+      const policeColor = REDUCED_MOTION || Math.floor(nowMs / 400) % 2 === 0
+        ? COLORS.police : COLORS.policeFlash;
       ctx.fillStyle = ctx.strokeStyle =
-        mil ? COLORS.mil : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
+        mil ? COLORS.mil : police ? policeColor : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
       ctx.rotate((t.shown.track * Math.PI) / 180);
       if (t.meta.heli) {
         drawHeli(ctx);
@@ -1133,7 +1150,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         const side = pt.x < canvas.clientWidth / 2 ? 'right' : 'left';
         const lines = blockLines(t);
         drawBlock(pt.x, pt.y, side, lines, {
-          overhead, dimmed, mil, alpha: blockAlpha, width: blockWidth(t, lines),
+          overhead, dimmed, mil, police, alpha: blockAlpha, width: blockWidth(t, lines),
         });
       }
     }
