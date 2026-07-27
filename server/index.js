@@ -159,7 +159,10 @@ let consecutiveFailures = 0;
 let feedBytes = 0; // cumulative internet bytes pulled from the feed
 let viewArea = null; // {lat, lon, radius_nm} — extra region when the map pans away from home
 let pollInFlight = false;
-let lowBandwidth = !!config.low_bandwidth;
+const BW_MODES = new Set(['high', 'medium', 'low']);
+let bwMode = BW_MODES.has(config.bandwidth_mode)
+  ? config.bandwidth_mode
+  : (config.low_bandwidth ? 'medium' : 'high'); // back-compat with the old flag
 let lastOuter = []; // aircraft beyond the inner ring, cached between full sweeps in low-bw mode
 let lastOuterAt = 0; // when that cache was fetched — rebroadcasts age seen_pos from this
 let tick = 0;
@@ -199,14 +202,22 @@ async function poll(kind = 'full') {
   }
 }
 
-// Low-bandwidth mode: the inner ring around home polls often (kind 'inner'),
-// the full radius only every few ticks; outer aircraft are carried over from
-// the last full sweep so they stay on screen between sweeps.
+// Bandwidth modes (3 s tick base):
+//   high   — full radius every tick
+//   medium — inner ring ~6 s, full sweep every 15 s
+//   low    — inner ring ~12 s, full sweep every 45 s
+// Outer aircraft are carried over from the last full sweep between sweeps.
 function scheduledPoll() {
   tick++;
-  if (!lowBandwidth) return poll('full');
-  if (tick % 5 === 0) return poll('full'); // every 15 s at the 3 s base
-  if (tick % 2 === 1) return poll('inner'); // roughly every 6 s
+  if (bwMode === 'high') return poll('full');
+  if (bwMode === 'medium') {
+    if (tick % 5 === 0) return poll('full');
+    if (tick % 2 === 1) return poll('inner');
+    return;
+  }
+  // low
+  if (tick % 15 === 0) return poll('full');
+  if (tick % 4 === 2) return poll('inner');
 }
 
 async function pollOnce(kind) {
@@ -251,7 +262,7 @@ async function pollOnce(kind) {
       totalBytes: usage.totalBytes,
       todayBytes: usage.days[dayKey(Date.now())] || 0,
       startedAt: STARTED_AT,
-      lowBandwidth,
+      bandwidthMode: bwMode,
       aircraft,
     };
     broadcast(lastPayload);
@@ -334,22 +345,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (url.pathname === '/lowbw' && req.method === 'POST') {
+  if (url.pathname === '/bwmode' && req.method === 'POST') {
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
       try {
-        const { enabled } = JSON.parse(body);
-        if (typeof enabled !== 'boolean') throw new Error('bad flag');
-        lowBandwidth = enabled;
-        updateLocalConfig({ low_bandwidth: enabled });
-        console.log(`[feed] low-bandwidth mode ${enabled ? 'ON' : 'OFF'}`);
-        if (!enabled) poll('full');
+        const { mode } = JSON.parse(body);
+        if (!BW_MODES.has(mode)) throw new Error('bad mode');
+        bwMode = mode;
+        updateLocalConfig({ bandwidth_mode: mode });
+        console.log(`[feed] bandwidth mode: ${mode}`);
+        if (mode === 'high') poll('full');
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, lowBandwidth }));
+        res.end(JSON.stringify({ ok: true, bandwidthMode: bwMode }));
       } catch {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'expected JSON {enabled: boolean}' }));
+        res.end(JSON.stringify({ error: 'expected JSON {mode: "high"|"medium"|"low"}' }));
       }
     });
     return;

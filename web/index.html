@@ -48,8 +48,15 @@
       <div class="hdr"><span>PER MINUTE · LAST 30 MIN</span><span id="bw-min-peak"></span></div>
       <canvas id="bw-min-canvas" width="264" height="56"></canvas>
       <div id="bw-stats"></div>
-      <label id="lowbw-row"><input type="checkbox" id="lowbw"> LOW BANDWIDTH MODE</label>
-      <div class="note">Inner 10 nm polled every ~6 s, full area every 15 s (~70% less data)</div>
+      <div id="bwmode-row">
+        <span>BANDWIDTH</span>
+        <div class="seg">
+          <button data-mode="high" type="button">HIGH</button>
+          <button data-mode="medium" type="button">MED</button>
+          <button data-mode="low" type="button">LOW</button>
+        </div>
+      </div>
+      <div class="note" id="bwmode-note"></div>
     </div>
   </main>
   <script src="/vendor/leaflet.js"></script>

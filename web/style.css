@@ -346,17 +346,35 @@ body { background: var(--stage-bg); }
   color: var(--bar-ink);
 }
 #bw-stats b { color: var(--bar-bright); font-weight: 600; }
-#lowbw-row {
+#bwmode-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
   margin-top: 8px;
   font-size: 10.5px;
   letter-spacing: 0.1em;
   color: var(--bar-bright);
+}
+#bwmode-row .seg { display: flex; }
+#bwmode-row .seg button {
+  padding: 5px 10px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-left-width: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--bar-ink);
   cursor: pointer;
 }
-#lowbw-row input { accent-color: var(--accent); cursor: pointer; }
+#bwmode-row .seg button:first-child { border-left-width: 1px; border-radius: 4px 0 0 4px; }
+#bwmode-row .seg button:last-child { border-radius: 0 4px 4px 0; }
+#bwmode-row .seg button.active {
+  background: var(--btn-bg);
+  color: var(--bar-bright);
+  border-color: var(--accent);
+}
 #bw-chart .note { font-size: 9px; letter-spacing: 0.06em; color: var(--muted); }
 
 /* keep required OSM/CARTO attribution, quiet it down */

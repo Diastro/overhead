@@ -397,19 +397,35 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const bwMinCanvas = document.getElementById('bw-min-canvas');
   const bwMinCtx = bwMinCanvas.getContext('2d');
   const bwMinPeak = document.getElementById('bw-min-peak');
-  const lowbwEl = document.getElementById('lowbw');
   const bwMinutes = []; // {min: epoch-minute, bytes}
   if (usageSeed && Array.isArray(usageSeed.minutes)) {
     bwMinutes.push(...usageSeed.minutes.slice(-31)); // survive reload/restart
   }
 
-  lowbwEl.addEventListener('change', () => {
-    fetch('/lowbw', {
+  // Three-way bandwidth mode control
+  const bwModeBtns = [...document.querySelectorAll('#bwmode-row .seg button')];
+  const bwModeNote = document.getElementById('bwmode-note');
+  const BW_NOTES = {
+    high: 'Full 50 mi area polled every 3 s',
+    medium: 'Inner 10 nm ~6 s · full sweep every 15 s (~70% less data)',
+    low: 'Inner 10 nm ~12 s · full sweep every 45 s (~90% less data)',
+  };
+  let bwMode = 'high';
+  function renderBwMode() {
+    bwModeBtns.forEach((b) => b.classList.toggle('active', b.dataset.mode === bwMode));
+    bwModeNote.textContent = BW_NOTES[bwMode];
+  }
+  bwModeBtns.forEach((b) => b.addEventListener('click', () => {
+    const prev = bwMode;
+    bwMode = b.dataset.mode;
+    renderBwMode();
+    fetch('/bwmode', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: lowbwEl.checked }),
-    }).catch(() => { lowbwEl.checked = !lowbwEl.checked; });
-  });
+      body: JSON.stringify({ mode: bwMode }),
+    }).catch(() => { bwMode = prev; renderBwMode(); });
+  }));
+  renderBwMode();
 
   function hexA(hex, a) {
     const n = parseInt(hex.slice(1), 16);
@@ -431,8 +447,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   function updateBandwidth(payload) {
     const feedBytes = payload.feedBytes;
     if (feedBytes == null) return;
-    if (document.activeElement !== lowbwEl && payload.lowBandwidth != null) {
-      lowbwEl.checked = payload.lowBandwidth;
+    if (payload.bandwidthMode && payload.bandwidthMode !== bwMode) {
+      bwMode = payload.bandwidthMode; // server is authoritative (persisted setting)
+      renderBwMode();
     }
     const now = Date.now();
     let rate = '';
@@ -459,7 +476,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         statRow('TODAY', fmtBytes(payload.todayBytes ?? 0)),
         statRow('ALL-TIME', fmtBytes(payload.totalBytes ?? feedBytes)),
         statRow('EST / DAY', avg ? fmtBytes(avg * 86400) : 'measuring…'),
-        statRow('MODE', payload.lowBandwidth ? 'LOW BANDWIDTH' : 'FULL'),
+        statRow('MODE', bwMode.toUpperCase()),
       );
     }
     drawBwChart();

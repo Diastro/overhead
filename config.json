@@ -16,6 +16,6 @@
   "trail_fade_seconds": 120,
   "detail_click_seconds": 7,
   "detail_always_below_view_miles": 10,
-  "low_bandwidth": false,
+  "bandwidth_mode": "high",
   "low_bw_inner_nm": 10
 }
