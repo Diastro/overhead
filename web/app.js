@@ -481,14 +481,14 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     light: {
       icon: '#3a7ca5', trail: '#6aa5c8', leader: '#a3a08c',
       blockBg: 'rgba(253,250,243,0.94)', blockEdge: '#c9bda4',
-      amber: '#b08430', amberEdge: '#c49a3c', amberBg: 'rgba(251,242,222,0.96)',
+      amber: '#cf8a12', amberEdge: '#d9a032', amberBg: 'rgba(253,246,227,0.96)',
       mil: '#c4675c', milEdge: '#b8564a', milBg: 'rgba(250,235,231,0.96)',
       dim: '#a3a89e',
       ring: '#5e9c88', ringText: '#4a8270', home: '#34435a',
       textNormal: ['#2a6fae', '#46525c', '#a07818', '#6d7a85'],
-      textOverhead: ['#8a6a10', '#5c4a16', '#a07818', '#7d6c42'],
+      textOverhead: ['#8a5c04', '#513f10', '#a07818', '#7d6a3a'],
       textMil: ['#a5473c', '#5c2c26', '#96554a', '#8a6b64'],
-      tagText: '#fdf8ef',
+      tagText: '#402f08',
       chartMuted: '#9aa1a8',
     },
   };
