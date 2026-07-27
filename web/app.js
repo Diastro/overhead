@@ -82,6 +82,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (d < -180) d += 360;
     return d;
   }
+  // Project a fix forward: follows the aircraft's estimated turn arc and
+  // speed trend (midpoint approximation) rather than a straight line.
+  function projectState(f, age) {
+    if (!(f.gs > 1) || f.onGround) return [f.lat, f.lon];
+    const a = Math.min(age, 45);
+    const gsAvg = Math.max(0, f.gs + ((f.accel || 0) * a) / 2);
+    const hdg = f.track + ((f.turnRate || 0) * a) / 2;
+    return project(f.lat, f.lon, hdg, (gsAvg * a) / 3600);
+  }
 
   // View-range slider (top right): fits the map so ~N statute miles are visible
   // around home. 1 mi = 0.868976 nm.
@@ -568,17 +577,39 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         track: ac.track ?? 0,
         alt: ac.alt, vr: ac.vr, onGround: ac.onGround,
         at: Date.now() - (ac.seenPos ? ac.seenPos * 1000 : 0),
+        turnRate: 0, accel: 0,
       };
-      // Same position rebroadcast (low-bw cached outer targets): keep the
-      // original fix time so extrapolation continues instead of restarting.
-      if (existing && existing.fix &&
-          existing.fix.lat === fix.lat && existing.fix.lon === fix.lon) {
-        fix.at = Math.min(existing.fix.at, fix.at);
+      const prevFix = existing && existing.fix;
+      const samePos = prevFix && prevFix.lat === fix.lat && prevFix.lon === fix.lon;
+      if (samePos) {
+        // Rebroadcast of a cached fix (low-bw outer targets): keep the original
+        // clock and kinematics so extrapolation continues instead of restarting.
+        fix.at = Math.min(prevFix.at, fix.at);
+        fix.turnRate = prevFix.turnRate;
+        fix.accel = prevFix.accel;
+      } else if (prevFix) {
+        // Estimate turn rate and acceleration from successive fixes so the
+        // projection follows arcs and speed changes, not straight lines.
+        const dtFix = (fix.at - prevFix.at) / 1000;
+        if (dtFix > 1.5 && dtFix < 60) {
+          fix.turnRate = Math.max(-6, Math.min(6, shortestArc(prevFix.track, fix.track) / dtFix));
+          fix.accel = Math.max(-3, Math.min(3, (fix.gs - prevFix.gs) / dtFix));
+        } else {
+          fix.turnRate = prevFix.turnRate;
+          fix.accel = prevFix.accel;
+        }
       }
       let t = targets.get(ac.hex);
       if (!t) {
-        t = { shown: { lat: ac.lat, lon: ac.lon, track: fix.track }, trail: [] };
+        t = { shown: { lat: ac.lat, lon: ac.lon, track: fix.track }, trail: [], corr: null };
         targets.set(ac.hex, t);
+      } else if (!samePos) {
+        // Absorb the fix discontinuity: remember where the plane is drawn vs.
+        // where the new projection says it should be, and decay that offset —
+        // screen motion stays continuous instead of chasing a jump.
+        const age0 = (Date.now() - fix.at) / 1000;
+        const [nLat, nLon] = projectState(fix, age0);
+        t.corr = { dLat: t.shown.lat - nLat, dLon: t.shown.lon - nLon, at: Date.now() };
       }
       t.fix = fix;
       t.meta = ac;
@@ -874,18 +905,25 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
     for (const t of targets.values()) {
       const f = t.fix;
-      // dead-reckon from the fix, ease the shown position toward it
+      // kinematic projection (arc + accel) plus a decaying correction offset —
+      // no spring chase, so no lurch when sparse fixes arrive
       const age = (Date.now() - f.at) / 1000;
-      const [pLat, pLon] = f.gs > 1 && !f.onGround
-        ? project(f.lat, f.lon, f.track, (f.gs * Math.min(age, 45)) / 3600)
-        : [f.lat, f.lon];
-      // Big corrections (long-gap fixes in low-bw mode) glide gently; small
-      // ones stay snappy.
-      const corrNm = distNm(t.shown.lat, t.shown.lon, pLat, pLon);
-      const k = 1 - Math.exp(-dtF * (corrNm > 0.25 ? 0.9 : 2.2));
-      t.shown.lat += (pLat - t.shown.lat) * k;
-      t.shown.lon += (pLon - t.shown.lon) * k;
-      t.shown.track += shortestArc(t.shown.track, f.track) * k;
+      let [sLat, sLon] = projectState(f, age);
+      if (t.corr) {
+        const cAge = (Date.now() - t.corr.at) / 1000;
+        const d = 1 - cAge / 3.5;
+        if (d <= 0) {
+          t.corr = null;
+        } else {
+          const w = d * d * (3 - 2 * d); // smoothstep: full offset now, gone in 3.5 s
+          sLat += t.corr.dLat * w;
+          sLon += t.corr.dLon * w;
+        }
+      }
+      t.shown.lat = sLat;
+      t.shown.lon = sLon;
+      const targetTrack = f.track + (f.turnRate || 0) * Math.min(age, 45);
+      t.shown.track += shortestArc(t.shown.track, targetTrack) * (1 - Math.exp(-dtF * 3));
 
       const pt = map.latLngToContainerPoint([t.shown.lat, t.shown.lon]);
       if (pt.x < -200 || pt.y < -200 || pt.x > canvas.clientWidth + 200 || pt.y > canvas.clientHeight + 200) continue;
