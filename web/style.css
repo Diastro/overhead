@@ -308,6 +308,7 @@ body { background: var(--stage-bg); }
   cursor: pointer;
 }
 #bw:hover { color: var(--bar-ink); }
+#next-scan { margin-left: 10px; }
 
 #bw-chart {
   position: absolute;

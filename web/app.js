@@ -23,8 +23,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const NM_PER_MI = 0.868976;
   const TRAIL_FADE_MS = (config.trail_fade_seconds ?? 60) * 1000;
   const DETAIL_MS = (config.detail_click_seconds ?? 7) * 1000;
-  const DETAIL_VIEW_MI = config.detail_always_below_view_miles ?? 10;
   const MAX_VIEW_MI = 50;
+  const OVERHEAD_MAX_FT = config.overhead_max_ft ?? 18000;
+  const PROJECT_CAP_S = 60; // must exceed LOW mode's 45 s full-sweep interval
 
   // ------------------------------------------------------------------- map
   const map = L.map('map', {
@@ -100,7 +101,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // speed trend (midpoint approximation) rather than a straight line.
   function projectState(f, age) {
     if (!(f.gs > 1) || f.onGround) return [f.lat, f.lon];
-    const a = Math.min(age, 45);
+    const a = Math.min(age, PROJECT_CAP_S);
     const gsAvg = Math.max(0, f.gs + ((f.accel || 0) * a) / 2);
     const hdg = f.track + ((f.turnRate || 0) * a) / 2;
     return project(f.lat, f.lon, hdg, (gsAvg * a) / 3600);
@@ -124,7 +125,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const west = project(HOME[0], HOME[1], 270, nm);
     map.fitBounds(L.latLngBounds([north, south, east, west]), { animate });
   }
-  // While dragging, redraw instantly at every mile step — no animation queue
+  // While dragging, redraw instantly at every mile step — no animation queue.
+  // The zoom→slider sync pauses during a drag so it can't fight the thumb.
+  let draggingRange = false;
+  rangeInput.addEventListener('pointerdown', () => { draggingRange = true; });
+  window.addEventListener('pointerup', () => { draggingRange = false; });
   rangeInput.addEventListener('input', () => {
     localStorage.setItem('overhead-view-miles', rangeInput.value);
     applyRange(Number(rangeInput.value), false);
@@ -149,7 +154,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
     // Keep the top-right slider in sync with mouse-wheel/pinch zoom: the
     // label shows the true view miles, the thumb clamps to slider range.
-    if (!suppressRangeSync) {
+    if (!suppressRangeSync && !draggingRange) {
       const trueMi = Math.round(currentViewMiles);
       const clamped = Math.max(vm.min, Math.min(vm.max, trueMi));
       if (Number(rangeInput.value) !== clamped) {
@@ -180,6 +185,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     clearTimeout(viewTimer);
     viewTimer = setTimeout(() => {
       lastSentView = key;
+      lastDesiredView = desired;
       fetch('/view', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -189,6 +195,19 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
   map.on('zoomend moveend resize', onViewChanged);
   onViewChanged();
+
+  // Re-assert an active view region every 2 min — the server expires regions
+  // after 5 min so a vanished browser can't leave it double-polling forever.
+  let lastDesiredView = null;
+  setInterval(() => {
+    if (lastDesiredView) {
+      fetch('/view', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(lastDesiredView),
+      }).catch(() => {});
+    }
+  }, 120000);
 
   // Click/tap an aircraft to show its data block for a few seconds
   map.on('click', (e) => {
@@ -206,12 +225,16 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // zoom to ~3 mi around it for 15 s, then return to the home view. At most
   // one such zoom per minute.
   const milZoom = { lastAt: 0, active: false };
+  const milAlerted = new Map(); // hex -> last zoom time: a patrolling aircraft
+  // flickering at coverage edge must not re-yank the display every minute
   function maybeMilZoom(ac) {
     const now = Date.now();
     if (milZoom.active || now - milZoom.lastAt < 60000) return;
+    if ((milAlerted.get(ac.hex) || 0) > now - 1800000) return; // 30 min per airframe
     if (distNm(HOME[0], HOME[1], ac.lat, ac.lon) > MAX_VIEW_MI * NM_PER_MI) return;
     milZoom.active = true;
     milZoom.lastAt = now;
+    milAlerted.set(ac.hex, now);
     const returnMiles = Number(rangeInput.value); // view to restore afterwards
     suppressRangeSync = true;
     const nm = 3 * NM_PER_MI;
@@ -331,7 +354,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       b.className = 'recent';
       b.textContent = entry.label;
       b.title = entry.label;
-      b.addEventListener('click', () => applyHome(entry.lat, entry.lon, entry.label));
+      b.addEventListener('click', () => {
+        applyHome(entry.lat, entry.lon, entry.label).catch((err) => {
+          homeMsg.textContent = String(err.message || err).toUpperCase();
+        });
+      });
       return b;
     }));
     homeRecent.style.display = h.length ? 'flex' : 'none';
@@ -384,6 +411,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // Bandwidth used by the live feed (reported by the server per poll).
   // Clicking the readout opens a sparkline of the last 60 s of feed rate.
   const bwEl = document.getElementById('bw');
+  const bwLabel = document.getElementById('bw-label');
+  let nextScan = null; // epoch ms of the next scheduled feed scan
   const bwChart = document.getElementById('bw-chart');
   const bwCanvas = document.getElementById('bw-canvas');
   const bwCtx = bwCanvas.getContext('2d');
@@ -465,6 +494,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
 
   function updateBandwidth(payload) {
+    if (payload.nextScanAt) nextScan = payload.nextScanAt;
     const feedBytes = payload.feedBytes;
     if (feedBytes == null) return;
     if (payload.bandwidthMode && payload.bandwidthMode !== bwMode) {
@@ -486,7 +516,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       while (bwMinutes.length > 31) bwMinutes.shift();
     }
     bwPrev = { bytes: feedBytes, at: now };
-    bwEl.textContent = `USAGE DATA · ${fmtBytes(feedBytes)}${rate}`;
+    bwLabel.textContent = `USAGE DATA · ${fmtBytes(feedBytes)}${rate}`;
 
     if (bwChart.classList.contains('open')) {
       const elapsed = payload.startedAt ? (now - payload.startedAt) / 1000 : null;
@@ -691,7 +721,32 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   };
 
   // ------------------------------------------------------------------ icons
-  const PLANE = new Path2D('M 0,-15 C 1.6,-15 2.2,-11 2.2,-8 L 2.2,-3 15,3.5 15,6.5 2.2,3.2 2.2,8.5 5.5,11.5 5.5,13.5 0,12 -5.5,13.5 -5.5,11.5 -2.2,8.5 -2.2,3.2 -15,6.5 -15,3.5 -2.2,-3 -2.2,-8 C -2.2,-11 -1.6,-15 0,-15 Z');
+  // Jet/airliner: swept wings
+  const PLANE_JET = new Path2D('M 0,-15 C 1.6,-15 2.2,-11 2.2,-8 L 2.2,-3 15,3.5 15,6.5 2.2,3.2 2.2,8.5 5.5,11.5 5.5,13.5 0,12 -5.5,13.5 -5.5,11.5 -2.2,8.5 -2.2,3.2 -15,6.5 -15,3.5 -2.2,-3 -2.2,-8 C -2.2,-11 -1.6,-15 0,-15 Z');
+  // Light piston/GA: straight wings, stubby fuselage
+  const PLANE_PROP = new Path2D('M 0,-11 C 1.1,-11 1.7,-8 1.7,-6 L 1.7,-3.5 13,-2.5 13,0.5 1.7,1 1.7,6.5 5,8 5,10 0,9 -5,10 -5,8 -1.7,6.5 -1.7,1 -13,0.5 -13,-2.5 -1.7,-3.5 -1.7,-6 C -1.7,-8 -1.1,-11 0,-11 Z');
+  // Turboprop/regional: straight wings, longer span and fuselage
+  const PLANE_TPROP = new Path2D('M 0,-14 C 1.3,-14 2,-10 2,-7 L 2,-3.5 15,-2.5 15,0.8 2,1.2 2,7.5 5.5,9.5 5.5,11.5 0,10.5 -5.5,11.5 -5.5,9.5 -2,7.5 -2,1.2 -15,0.8 -15,-2.5 -2,-3.5 -2,-7 C -2,-10 -1.3,-14 0,-14 Z');
+
+  const TPROP_TYPES = /^(DH8|AT4|AT7|SF3|SW[34]|C130|C30J|B190|B350|BE20|BE99|D228|D328|F50|PC12|TBM|C208|E110)/;
+  // Cessna singles are 4-char (C172) — a bare C17 is the Globemaster
+  const LIGHT_TYPES = /^(C1\d\d|C2\d\d|P28|PA[1-4]|SR2|BE3[35]|BE5[058]|BE76|DA4|DA6|DV2|M20|RV|AA5|CH7|BL8|J3)/;
+
+  function planeIconFor(m) {
+    const t = (m.type || '').toUpperCase();
+    if (TPROP_TYPES.test(t)) return PLANE_TPROP;
+    if (m.category === 'A3' || m.category === 'A4' || m.category === 'A5') return PLANE_JET;
+    if (LIGHT_TYPES.test(t) || m.category === 'A1') return PLANE_PROP;
+    return PLANE_JET;
+  }
+  function iconScaleFor(m) {
+    switch (m.category) {
+      case 'A5': return 1.45; // heavy
+      case 'A4': case 'A3': return 1.2;
+      case 'A1': return 0.95;
+      default: return 1.05;
+    }
+  }
 
   function drawHeli(ctx) {
     ctx.beginPath();
@@ -781,16 +836,27 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     return [id, model, op, state];
   }
 
-  function drawBlock(x, y, side, lines, opts) {
-    const { overhead, dimmed, mil, alpha = 1 } = opts;
+  // measureText is expensive at 60 fps × 4 lines × N blocks — cache per
+  // target until the block's text actually changes.
+  function blockWidth(t, lines) {
+    const key = lines.map((s) => (typeof s === 'object' ? s.pre + s.arrow + s.post : s)).join('|');
+    if (t.bwKey === key) return t.bwPx;
     ctx.font = MONO;
-    const padX = 12, lineH = 19, padTop = 8;
     let w = 0;
     for (const s of lines) {
       const text = typeof s === 'object' ? s.pre + s.arrow + s.post : s;
       w = Math.max(w, ctx.measureText(text).width);
     }
-    w += padX * 2;
+    t.bwKey = key;
+    t.bwPx = w + 24; // padX * 2
+    return t.bwPx;
+  }
+
+  function drawBlock(x, y, side, lines, opts) {
+    const { overhead, dimmed, mil, alpha = 1 } = opts;
+    ctx.font = MONO;
+    const padX = 12, lineH = 19, padTop = 8;
+    const w = opts.width;
     const tagged = overhead || mil;
     const tagH = tagged ? 20 : 0;
     const h = padTop * 2 + lineH * lines.length + tagH - 4;
@@ -958,7 +1024,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   function frame(now) {
     const dtF = Math.min((now - lastFrame) / 1000, 0.25);
     lastFrame = now;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
 
     drawRings();
     drawScale();
@@ -985,14 +1051,17 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       }
       t.shown.lat = sLat;
       t.shown.lon = sLon;
-      const targetTrack = f.track + (f.turnRate || 0) * Math.min(age, 45);
+      const targetTrack = f.track + (f.turnRate || 0) * Math.min(age, PROJECT_CAP_S);
       t.shown.track += shortestArc(t.shown.track, targetTrack) * (1 - Math.exp(-dtF * 3));
 
       const pt = map.latLngToContainerPoint([t.shown.lat, t.shown.lon]);
       if (pt.x < -200 || pt.y < -200 || pt.x > canvas.clientWidth + 200 || pt.y > canvas.clientHeight + 200) continue;
 
       const dHome = distNm(HOME[0], HOME[1], t.shown.lat, t.shown.lon);
-      const overhead = !f.onGround && dHome <= (config.overhead_nm || 5);
+      // "Overhead" = laterally close AND low enough to matter — a jet at
+      // FL350 crossing the ring is an overflight, not an event.
+      const overhead = !f.onGround && dHome <= (config.overhead_nm || 5) &&
+        (f.alt == null || f.alt <= OVERHEAD_MAX_FT);
       if (overhead) overheadCount++;
       const dimmed = f.onGround;
       const mil = !!t.meta.mil;
@@ -1035,16 +1104,17 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (t.meta.heli) {
         drawHeli(ctx);
       } else {
-        ctx.fill(PLANE);
+        const s = iconScaleFor(t.meta);
+        ctx.scale(s, s);
+        ctx.fill(planeIconFor(t.meta));
       }
       ctx.restore();
 
       // Data block: the top-left toggle decides — OVERHEAD shows blocks only
       // for aircraft inside the overhead ring, ALL for every airborne one.
-      // Ground/stationary aircraft never show a block on their own; anything
-      // hidden shows one for 7 s after a click/tap.
-      const stationary = f.gs < 3;
-      let showBlock = !stationary && !f.onGround && (dataMode === 'all' || overhead);
+      // Ground aircraft never show a block on their own (click for 7 s), but
+      // airborne-and-slow is a hovering helicopter, not a parked plane.
+      let showBlock = !f.onGround && (dataMode === 'all' || overhead);
       let blockAlpha = 1;
       if (!showBlock && t.detailUntil) {
         const left = t.detailUntil - nowMs;
@@ -1061,7 +1131,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       }
       if (showBlock) {
         const side = pt.x < canvas.clientWidth / 2 ? 'right' : 'left';
-        drawBlock(pt.x, pt.y, side, blockLines(t), { overhead, dimmed, mil, alpha: blockAlpha });
+        const lines = blockLines(t);
+        drawBlock(pt.x, pt.y, side, lines, {
+          overhead, dimmed, mil, alpha: blockAlpha, width: blockWidth(t, lines),
+        });
       }
     }
 
@@ -1072,24 +1145,48 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
   // ------------------------------------------------------------- status bar
   const el = {
+    bar: document.getElementById('bar'),
     clock: document.getElementById('clock'),
     count: document.getElementById('count'),
     overhead: document.getElementById('overhead-count'),
     dot: document.getElementById('feed-dot'),
     feed: document.getElementById('feed-name'),
+    nextScan: document.getElementById('next-scan'),
   };
+  // Healthy broadcast cadence differs per bandwidth mode — the stall alarm
+  // must not cry wolf between LOW mode's scheduled 12 s gaps.
+  const STALE_MS = { high: [10000, 30000], medium: [15000, 40000], low: [25000, 60000] };
+  const cached = {}; // skip identical DOM writes — this runs every frame
+  function setText(node, key, value) {
+    if (cached[key] !== value) {
+      cached[key] = value;
+      node.textContent = value;
+    }
+  }
   function updateBar(overheadCount) {
-    el.count.textContent = targets.size;
-    el.overhead.textContent = overheadCount;
+    setText(el.count, 'count', String(targets.size));
+    setText(el.overhead, 'overhead', String(overheadCount));
     const stale = Date.now() - feedState.lastOkAt;
-    const cls = feedState.lastOkAt === 0 ? '' : stale < 10000 ? 'ok' : stale < 30000 ? 'warn' : 'bad';
-    el.dot.className = 'dot ' + cls;
-    document.getElementById('bar').classList.toggle('stalled', cls === 'warn' || cls === 'bad');
-    el.feed.textContent = cls === 'bad' || cls === 'warn'
+    const [warnMs, badMs] = STALE_MS[bwMode] || STALE_MS.high;
+    const cls = feedState.lastOkAt === 0 ? '' : stale < warnMs ? 'ok' : stale < badMs ? 'warn' : 'bad';
+    if (cached.dot !== cls) {
+      cached.dot = cls;
+      el.dot.className = 'dot ' + cls;
+    }
+    const stalled = cls === 'warn' || cls === 'bad';
+    if (cached.stalled !== stalled) {
+      cached.stalled = stalled;
+      el.bar.classList.toggle('stalled', stalled);
+    }
+    setText(el.feed, 'feed', stalled
       ? `FEED STALE ${Math.round(stale / 1000)}s`
-      : `FEED: ${feedState.source.toUpperCase()}`;
+      : `FEED: ${feedState.source.toUpperCase()}`);
   }
   setInterval(() => {
     el.clock.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
+    if (nextScan) {
+      const s = Math.ceil((nextScan - Date.now()) / 1000);
+      setText(el.nextScan, 'nextScan', s > 0 ? `· NEXT SCAN ${s}s` : '· SCANNING…');
+    }
   }, 250);
 })();

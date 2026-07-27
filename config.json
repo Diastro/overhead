@@ -10,12 +10,13 @@
   "poll_seconds": 3,
   "rings_nm": [5, 15],
   "overhead_nm": 5,
+  "overhead_max_ft": 18000,
   "port": 8080,
+  "lan": true,
   "show_ground_traffic": true,
   "trail_length": 80,
   "trail_fade_seconds": 120,
   "detail_click_seconds": 7,
-  "detail_always_below_view_miles": 10,
   "bandwidth_mode": "high",
   "low_bw_inner_nm": 10
 }

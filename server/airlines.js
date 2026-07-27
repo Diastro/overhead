@@ -19,7 +19,6 @@ module.exports = {
   CMP: 'Copa Airlines',
   CPA: 'Cathay Pacific',
   CPZ: 'Compass Airlines',
-  CXK: 'Cathay Cargo',
   DAL: 'Delta Air Lines',
   DLH: 'Lufthansa',
   EDV: 'Endeavor Air',
@@ -72,7 +71,4 @@ module.exports = {
   VXP: 'Avelo Airlines',
   WJA: 'WestJet',
   XOJ: 'XOJET',
-
-  // PNW-flavored
-  KEN: 'Kenmore Air',
 };

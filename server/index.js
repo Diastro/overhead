@@ -12,13 +12,29 @@ const ROOT = path.join(__dirname, '..');
 const WEB = path.join(ROOT, 'web');
 
 function loadConfig() {
+  // config.json is committed and should fail loud; config.local.json is
+  // machine-written, so a corrupted file (power cut mid-write) must never
+  // brick the kiosk at boot — fall back to base config and complain.
   const base = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
   const localPath = path.join(ROOT, 'config.local.json');
   if (fs.existsSync(localPath)) {
-    const local = JSON.parse(fs.readFileSync(localPath, 'utf8'));
-    return { ...base, ...local, home: { ...base.home, ...(local.home || {}) } };
+    try {
+      const local = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+      return { ...base, ...local, home: { ...base.home, ...(local.home || {}) } };
+    } catch (err) {
+      console.error(`[config] config.local.json unreadable (${err.message}) — using defaults`);
+    }
   }
   return base;
+}
+
+// Atomic JSON write: temp file + rename so a power cut never leaves a
+// half-written file behind.
+function writeJsonAtomic(p, value, pretty) {
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = p + '.tmp';
+  fs.writeFileSync(tmp, pretty ? JSON.stringify(value, null, 2) + '\n' : JSON.stringify(value));
+  fs.renameSync(tmp, p);
 }
 
 const config = loadConfig();
@@ -79,7 +95,9 @@ function isHeli(ac) {
 function normalize(raw) {
   const out = [];
   for (const ac of raw) {
-    if (ac.lat == null || ac.lon == null) continue;
+    // No hex = no stable identity (some TIS-B targets); skipping avoids
+    // merging them all into one ghost track client-side.
+    if (ac.lat == null || ac.lon == null || !ac.hex) continue;
     const onGround = ac.alt_baro === 'ground';
     if (onGround && !config.show_ground_traffic) continue;
     const callsign = (ac.flight || '').trim().toUpperCase() || null;
@@ -97,7 +115,9 @@ function normalize(raw) {
       alt: onGround ? 0 : (typeof ac.alt_baro === 'number' ? ac.alt_baro : null),
       onGround,
       gs: ac.gs ?? null,
-      track: ac.track ?? ac.true_heading ?? null,
+      // track only — heading points the nose, not the motion (crab angle);
+      // extrapolating along heading drifts targets downwind
+      track: ac.track ?? null,
       vr: ac.baro_rate ?? ac.geom_rate ?? 0,
       category: ac.category || null,
       heli: isHeli(ac),
@@ -121,7 +141,11 @@ let usageDirty = false;
 try { usage = { ...usage, ...JSON.parse(fs.readFileSync(USAGE_PATH, 'utf8')) }; } catch {}
 
 function dayKey(ts) {
-  return new Date(ts).toISOString().slice(0, 10);
+  // Local calendar day — "TODAY" on a wall display must not roll over at UTC
+  // midnight (4-5 PM on the US west coast).
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 function addUsage(bytes) {
   const now = Date.now();
@@ -140,8 +164,7 @@ function addUsage(bytes) {
 function saveUsage() {
   if (!usageDirty) return;
   try {
-    fs.mkdirSync(path.dirname(USAGE_PATH), { recursive: true });
-    fs.writeFileSync(USAGE_PATH, JSON.stringify(usage));
+    writeJsonAtomic(USAGE_PATH, usage, false);
     usageDirty = false;
   } catch (err) {
     console.error(`[usage] save failed: ${err.message}`);
@@ -158,6 +181,7 @@ let lastSuccessAt = 0;
 let consecutiveFailures = 0;
 let feedBytes = 0; // cumulative internet bytes pulled from the feed
 let viewArea = null; // {lat, lon, radius_nm} — extra region when the map pans away from home
+let viewAreaAt = 0; // last time a client asserted it (TTL'd in scheduledPoll)
 let pollInFlight = false;
 const BW_MODES = new Set(['high', 'medium', 'low']);
 let bwMode = BW_MODES.has(config.bandwidth_mode)
@@ -166,6 +190,8 @@ let bwMode = BW_MODES.has(config.bandwidth_mode)
 let lastOuter = []; // aircraft beyond the inner ring, cached between full sweeps in low-bw mode
 let lastOuterAt = 0; // when that cache was fetched — rebroadcasts age seen_pos from this
 let tick = 0;
+let lastTickAt = Date.now();
+const pollBaseMs = Math.max(2, config.poll_seconds) * 1000;
 const STARTED_AT = Date.now();
 const INNER_NM = config.low_bw_inner_nm || 10;
 const clients = new Set();
@@ -207,8 +233,30 @@ async function poll(kind = 'full') {
 //   medium — inner ring ~6 s, full sweep every 15 s
 //   low    — inner ring ~12 s, full sweep every 45 s
 // Outer aircraft are carried over from the last full sweep between sweeps.
+// When the next scheduled scan will fire, given the mode's tick pattern.
+function nextScanAt() {
+  let k = 1;
+  if (bwMode !== 'high') {
+    for (k = 1; k <= 15; k++) {
+      const t = tick + k;
+      const fires = bwMode === 'medium'
+        ? (t % 5 === 0 || t % 2 === 1)
+        : (t % 15 === 0 || t % 4 === 2);
+      if (fires) break;
+    }
+  }
+  return lastTickAt + k * pollBaseMs;
+}
+
 function scheduledPoll() {
   tick++;
+  lastTickAt = Date.now();
+  // A view region left behind by a vanished browser must not double our
+  // bandwidth forever — clients re-assert theirs every 2 minutes.
+  if (viewArea && Date.now() - viewAreaAt > 300000) {
+    viewArea = null;
+    console.log('[feed] view region expired');
+  }
   if (bwMode === 'high') return poll('full');
   if (bwMode === 'medium') {
     if (tick % 5 === 0) return poll('full');
@@ -263,6 +311,7 @@ async function pollOnce(kind) {
       todayBytes: usage.days[dayKey(Date.now())] || 0,
       startedAt: STARTED_AT,
       bandwidthMode: bwMode,
+      nextScanAt: nextScanAt(),
       aircraft,
     };
     broadcast(lastPayload);
@@ -279,6 +328,7 @@ async function pollOnce(kind) {
       source: src.name,
       ok: false,
       staleSeconds: lastSuccessAt ? Math.round((Date.now() - lastSuccessAt) / 1000) : null,
+      nextScanAt: nextScanAt(),
       aircraft: null, // client keeps coasting on its last targets
     });
   }
@@ -286,7 +336,10 @@ async function pollOnce(kind) {
 
 function broadcast(payload) {
   const frame = `data: ${JSON.stringify(payload)}\n\n`;
-  for (const res of clients) res.write(frame);
+  for (const res of clients) {
+    // A socket that died without a clean close must never crash the kiosk.
+    try { res.write(frame); } catch { clients.delete(res); }
+  }
 }
 
 // ------------------------------------------------------------------- server
@@ -308,12 +361,18 @@ function updateLocalConfig(patch) {
   let local = {};
   try { local = JSON.parse(fs.readFileSync(p, 'utf8')); } catch {}
   Object.assign(local, patch);
-  fs.writeFileSync(p, JSON.stringify(local, null, 2) + '\n');
+  try {
+    writeJsonAtomic(p, local, true);
+  } catch (err) {
+    console.error(`[config] save failed: ${err.message}`);
+  }
 }
 
 function persistHome() {
   updateLocalConfig({ home: { lat: config.home.lat, lon: config.home.lon } });
 }
+
+let lastGeocodeAt = 0;
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -321,6 +380,13 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/geocode') {
     const q = (url.searchParams.get('q') || '').trim();
     if (!q) { res.writeHead(400).end(); return; }
+    // Respect Nominatim's 1 req/s policy even if the key is being mashed
+    if (Date.now() - lastGeocodeAt < 1100) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'one lookup per second — try again' }));
+      return;
+    }
+    lastGeocodeAt = Date.now();
     try {
       const r = await fetch(
         'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(q),
@@ -372,6 +438,7 @@ const server = http.createServer(async (req, res) => {
     req.on('end', () => {
       try {
         const v = JSON.parse(body || 'null');
+        viewAreaAt = Date.now();
         if (v === null) {
           viewArea = null;
         } else {
@@ -425,6 +492,7 @@ const server = http.createServer(async (req, res) => {
     if (lastPayload) res.write(`data: ${JSON.stringify(lastPayload)}\n\n`);
     clients.add(res);
     req.on('close', () => clients.delete(res));
+    res.on('error', () => clients.delete(res));
     return;
   }
 
@@ -458,9 +526,13 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(config.port, () => {
-  console.log(`Overhead tracker on http://localhost:${config.port}`);
+// lan: true (default) serves other devices on your network — they can also
+// change home/bandwidth settings. Set "lan": false in config to bind
+// localhost only (kiosk-private).
+const host = config.lan === false ? '127.0.0.1' : undefined;
+server.listen(config.port, host, () => {
+  console.log(`Overhead tracker on http://localhost:${config.port}${host ? ' (localhost only)' : ''}`);
   console.log(`Home ${config.home.lat}, ${config.home.lon} · radius ${RADIUS_NM} nm · poll ${config.poll_seconds}s`);
   poll('full');
-  setInterval(scheduledPoll, Math.max(2, config.poll_seconds) * 1000);
+  setInterval(scheduledPoll, pollBaseMs);
 });
