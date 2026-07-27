@@ -359,7 +359,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       li.dataset.hex = m.hex;
       if (m.mil) li.classList.add('mil');
       else if (m.police) li.classList.add('police');
-      else if (!t.fix.onGround && d <= (config.overhead_nm || 5)) li.classList.add('overhead');
+      else if (t.fix.onGround) li.classList.add('ground'); // grey, like the map
+      else if (d <= (config.overhead_nm || 5)) li.classList.add('overhead');
       const l1 = document.createElement('div');
       l1.className = 'l1';
       l1.textContent = m.callsign || m.reg || m.hex.toUpperCase();

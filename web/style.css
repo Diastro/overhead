@@ -215,6 +215,9 @@ body { background: var(--stage-bg); }
 #ac-list li.mil .l1 { color: var(--bad); }
 #ac-list li.police .l1 { color: var(--police); }
 #ac-list li.overhead .l1 { color: var(--warn); }
+#ac-list li.ground .l1,
+#ac-list li.ground .l1 .dist,
+#ac-list li.ground .l2 { color: var(--muted); }
 
 #home-panel {
   position: absolute;
