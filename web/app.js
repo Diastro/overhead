@@ -15,6 +15,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
 (async function main() {
   const config = await (await fetch('/config')).json();
+  const usageSeed = await fetch('/usage').then((r) => r.json()).catch(() => null);
   let HOME = [config.home.lat, config.home.lon];
 
   // Shared constants — keep at the top: init code below runs immediately and
@@ -85,17 +86,22 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const vm = config.view_miles || { min: 4, max: 40, default: 15 };
   rangeInput.min = vm.min;
   rangeInput.max = vm.max;
-  rangeInput.value = vm.default;
-  function applyRange(miles) {
+  const savedMiles = Number(localStorage.getItem('overhead-view-miles'));
+  rangeInput.value = savedMiles >= vm.min && savedMiles <= vm.max ? savedMiles : vm.default;
+  function applyRange(miles, animate = true) {
     rangeVal.textContent = miles;
     const nm = miles * 0.868976;
     const north = project(HOME[0], HOME[1], 0, nm);
     const south = project(HOME[0], HOME[1], 180, nm);
     const east = project(HOME[0], HOME[1], 90, nm);
     const west = project(HOME[0], HOME[1], 270, nm);
-    map.fitBounds(L.latLngBounds([north, south, east, west]), { animate: true });
+    map.fitBounds(L.latLngBounds([north, south, east, west]), { animate });
   }
-  rangeInput.addEventListener('input', () => applyRange(Number(rangeInput.value)));
+  // While dragging, redraw instantly at every mile step — no animation queue
+  rangeInput.addEventListener('input', () => {
+    localStorage.setItem('overhead-view-miles', rangeInput.value);
+    applyRange(Number(rangeInput.value), false);
+  });
   applyRange(Number(rangeInput.value));
 
   // Effective view radius in miles (tracks slider AND manual pan/zoom) and the
@@ -184,8 +190,13 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   listToggle.addEventListener('click', () => {
     const open = listPanel.classList.toggle('open');
     listToggle.classList.toggle('open', open);
+    localStorage.setItem('overhead-panel-list', open ? '1' : '0');
     if (open) renderList();
   });
+  if (localStorage.getItem('overhead-panel-list') === '1') {
+    listPanel.classList.add('open');
+    listToggle.classList.add('open');
+  }
 
   // Hovering a row isolates that aircraft: every other data block on the map
   // hides until the pointer leaves the list.
@@ -323,10 +334,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   let bwHover = null; // hovered sample index or null
 
   bwEl.addEventListener('click', () => {
-    bwChart.classList.toggle('open');
+    const open = bwChart.classList.toggle('open');
+    localStorage.setItem('overhead-panel-usage', open ? '1' : '0');
     drawBwChart();
     drawBwBars();
   });
+  if (localStorage.getItem('overhead-panel-usage') === '1') bwChart.classList.add('open');
   bwCanvas.addEventListener('mousemove', (e) => {
     if (!bwHistory.length) return;
     const rect = bwCanvas.getBoundingClientRect();
@@ -347,6 +360,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const bwMinPeak = document.getElementById('bw-min-peak');
   const lowbwEl = document.getElementById('lowbw');
   const bwMinutes = []; // {min: epoch-minute, bytes}
+  if (usageSeed && Array.isArray(usageSeed.minutes)) {
+    bwMinutes.push(...usageSeed.minutes.slice(-31)); // survive reload/restart
+  }
 
   lowbwEl.addEventListener('change', () => {
     fetch('/lowbw', {
@@ -401,6 +417,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const avg = elapsed && elapsed > 30 ? feedBytes / elapsed : null;
       bwStats.replaceChildren(
         statRow('SESSION', `${fmtBytes(feedBytes)}${avg ? ` · avg ${(avg / 1024).toFixed(1)} KB/s` : ''}`),
+        statRow('TODAY', fmtBytes(payload.todayBytes ?? 0)),
+        statRow('ALL-TIME', fmtBytes(payload.totalBytes ?? feedBytes)),
         statRow('EST / DAY', avg ? fmtBytes(avg * 86400) : 'measuring…'),
         statRow('MODE', payload.lowBandwidth ? 'LOW BANDWIDTH' : 'FULL'),
       );
@@ -608,6 +626,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       tagText: '#140f04',
       chartMuted: '#5a6c7e',
       chartLow: '#2a5f83', chartHigh: '#7fd4ff', chartPeak: '#ffd166',
+      vsUp: '#35d07f', vsDown: '#ff6a55', vsFlat: '#8092a4',
     },
     light: {
       icon: '#3a7ca5', trail: '#6aa5c8', leader: '#a3a08c',
@@ -622,6 +641,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       tagText: '#402f08',
       chartMuted: '#9aa1a8',
       chartLow: '#a8cbe0', chartHigh: '#2a6fae', chartPeak: '#cf8a12',
+      vsUp: '#2e8a5c', vsDown: '#c0342a', vsFlat: '#8a94a0',
     },
   };
   let COLORS = THEMES.dark;
@@ -639,13 +659,6 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   });
   applyTheme(localStorage.getItem('overhead-theme') || 'dark');
 
-  function fmtAlt(t) {
-    if (t.fix.onGround) return 'GROUND';
-    if (t.fix.alt == null) return 'ALT N/A';
-    const arrow = t.fix.vr > 250 ? ' ↑' : t.fix.vr < -250 ? ' ↓' : ' →';
-    return t.fix.alt.toLocaleString() + ' ft' + arrow;
-  }
-
   function blockLines(t) {
     const m = t.meta;
     const id = m.callsign && m.reg && m.callsign !== m.reg
@@ -653,7 +666,20 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       : (m.callsign || m.reg || m.hex.toUpperCase() + ' · —');
     const model = m.model ? (m.type ? `${m.type} ${m.model}` : m.model) : (m.type || 'Type n/a');
     const op = m.operator || (m.model ? '—' : 'blocked / n/a');
-    const state = `${fmtAlt(t)} · ${Math.round(t.fix.gs)} kt`;
+    const kt = ` · ${Math.round(t.fix.gs)} kt`;
+    let state;
+    if (t.fix.onGround) state = 'GROUND' + kt;
+    else if (t.fix.alt == null) state = 'ALT N/A' + kt;
+    else {
+      // structured so the trend arrow can carry its own color
+      const vs = t.fix.vr > 250 ? 'up' : t.fix.vr < -250 ? 'down' : 'flat';
+      state = {
+        pre: t.fix.alt.toLocaleString() + ' ft ',
+        arrow: vs === 'up' ? '↑' : vs === 'down' ? '↓' : '→',
+        vs,
+        post: kt,
+      };
+    }
     return [id, model, op, state];
   }
 
@@ -662,7 +688,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     ctx.font = MONO;
     const padX = 12, lineH = 19, padTop = 8;
     let w = 0;
-    for (const s of lines) w = Math.max(w, ctx.measureText(s).width);
+    for (const s of lines) {
+      const text = typeof s === 'object' ? s.pre + s.arrow + s.post : s;
+      w = Math.max(w, ctx.measureText(text).width);
+    }
     w += padX * 2;
     const tagged = overhead || mil;
     const tagH = tagged ? 20 : 0;
@@ -710,8 +739,25 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     ctx.textBaseline = 'top';
     lines.forEach((s, i) => {
       ctx.font = i === 0 ? MONO_BOLD : MONO;
-      ctx.fillStyle = dimmed ? COLORS.dim : palette[i];
-      ctx.fillText(s, bx + padX, ty + 2);
+      const color = dimmed ? COLORS.dim : palette[i];
+      if (typeof s === 'object') {
+        // altitude · colored trend arrow · speed
+        let tx = bx + padX;
+        ctx.fillStyle = color;
+        ctx.fillText(s.pre, tx, ty + 2);
+        tx += ctx.measureText(s.pre).width;
+        ctx.font = MONO_BOLD;
+        ctx.fillStyle = dimmed ? COLORS.dim
+          : s.vs === 'up' ? COLORS.vsUp : s.vs === 'down' ? COLORS.vsDown : COLORS.vsFlat;
+        ctx.fillText(s.arrow, tx, ty + 2);
+        tx += ctx.measureText(s.arrow).width;
+        ctx.font = MONO;
+        ctx.fillStyle = color;
+        ctx.fillText(s.post, tx, ty + 2);
+      } else {
+        ctx.fillStyle = color;
+        ctx.fillText(s, bx + padX, ty + 2);
+      }
       ty += lineH;
     });
     ctx.globalAlpha = 1;
@@ -768,6 +814,48 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     ctx.restore();
   }
 
+  // Vertical distance scale (nm), centered on the right edge
+  function drawScale() {
+    const W = canvas.clientWidth;
+    const H = canvas.clientHeight;
+    const c = map.getCenter();
+    const p1 = map.latLngToContainerPoint([c.lat, c.lng]);
+    const p2 = map.latLngToContainerPoint(project(c.lat, c.lng, 0, 1)); // 1 nm north
+    const pxPerNm = Math.abs(p1.y - p2.y);
+    if (!pxPerNm) return;
+    const nice = [1, 2, 5, 10, 15, 20, 25, 30, 40, 50];
+    let total = nice[0];
+    for (const n of nice) if (n * pxPerNm <= H * 0.4) total = n;
+    const step = total / 5;
+    const len = total * pxPerNm;
+    const x = W - 24;
+    const yBottom = H / 2 + len / 2;
+
+    ctx.strokeStyle = COLORS.ring;
+    ctx.fillStyle = COLORS.ringText;
+    ctx.lineWidth = 1.4;
+    ctx.font = '11px ui-monospace, "SF Mono", Menlo, monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.beginPath();
+    ctx.moveTo(x, yBottom);
+    ctx.lineTo(x, yBottom - len);
+    ctx.stroke();
+    for (let i = 0; i <= 5; i++) {
+      const y = yBottom - i * step * pxPerNm;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - (i % 5 === 0 ? 8 : 5), y);
+      ctx.stroke();
+      if (i === 0 || i === 5 || total >= 10) {
+        const label = i === 5 ? `${total} NM` : String(i * step);
+        ctx.fillText(label, x - 11, y);
+      }
+    }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+
   let lastFrame = performance.now();
   function frame(now) {
     const dtF = Math.min((now - lastFrame) / 1000, 0.25);
@@ -775,6 +863,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     drawRings();
+    drawScale();
 
     let overheadCount = 0;
     const homePt = map.latLngToContainerPoint(HOME);

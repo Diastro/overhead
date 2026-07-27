@@ -1,4 +1,5 @@
 node_modules/
 config.local.json
 data/*.sqlite
+data/usage.json
 .DS_Store

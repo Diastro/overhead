@@ -112,6 +112,46 @@ function normalize(raw) {
 
 // ------------------------------------------------------------------- poller
 
+// ------------------------------------------------- persistent usage counters
+// Survives restarts. Written at most once a minute (plus on shutdown) to be
+// gentle on the Pi's SD card.
+const USAGE_PATH = path.join(ROOT, 'data', 'usage.json');
+let usage = { totalBytes: 0, days: {}, minutes: [] };
+let usageDirty = false;
+try { usage = { ...usage, ...JSON.parse(fs.readFileSync(USAGE_PATH, 'utf8')) }; } catch {}
+
+function dayKey(ts) {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+function addUsage(bytes) {
+  const now = Date.now();
+  usage.totalBytes += bytes;
+  const day = dayKey(now);
+  usage.days[day] = (usage.days[day] || 0) + bytes;
+  const dayKeys = Object.keys(usage.days).sort();
+  while (dayKeys.length > 35) delete usage.days[dayKeys.shift()];
+  const mn = Math.floor(now / 60000);
+  const last = usage.minutes[usage.minutes.length - 1];
+  if (last && last.min === mn) last.bytes += bytes;
+  else usage.minutes.push({ min: mn, bytes });
+  while (usage.minutes.length > 61) usage.minutes.shift();
+  usageDirty = true;
+}
+function saveUsage() {
+  if (!usageDirty) return;
+  try {
+    fs.mkdirSync(path.dirname(USAGE_PATH), { recursive: true });
+    fs.writeFileSync(USAGE_PATH, JSON.stringify(usage));
+    usageDirty = false;
+  } catch (err) {
+    console.error(`[usage] save failed: ${err.message}`);
+  }
+}
+setInterval(saveUsage, 60000);
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => { saveUsage(); process.exit(0); });
+}
+
 let sourceIdx = 0;
 let lastPayload = null;
 let lastSuccessAt = 0;
@@ -143,7 +183,9 @@ async function fetchRegion(src, lat, lon, radiusNm) {
   // Prefer Content-Length: that's compressed wire bytes (the feed gzips);
   // fall back to decompressed size when the header is absent.
   const clen = Number(res.headers.get('content-length'));
-  feedBytes += Number.isFinite(clen) && clen > 0 ? clen : Buffer.byteLength(text);
+  const wireBytes = Number.isFinite(clen) && clen > 0 ? clen : Buffer.byteLength(text);
+  feedBytes += wireBytes;
+  addUsage(wireBytes);
   return JSON.parse(text).ac || [];
 }
 
@@ -206,6 +248,8 @@ async function pollOnce(kind) {
       source: src.name,
       ok: true,
       feedBytes,
+      totalBytes: usage.totalBytes,
+      todayBytes: usage.days[dayKey(Date.now())] || 0,
       startedAt: STARTED_AT,
       lowBandwidth,
       aircraft,
@@ -370,6 +414,12 @@ const server = http.createServer(async (req, res) => {
     if (lastPayload) res.write(`data: ${JSON.stringify(lastPayload)}\n\n`);
     clients.add(res);
     req.on('close', () => clients.delete(res));
+    return;
+  }
+
+  if (url.pathname === '/usage') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ...usage, sessionBytes: feedBytes, startedAt: STARTED_AT }));
     return;
   }
 
