@@ -32,6 +32,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     zoom: 11,
     zoomControl: false,
     attributionControl: true,
+    // fractional zoom so the view slider actually changes scale per mile —
+    // default integer snapping collapses ~10 mile values onto one zoom level
+    zoomSnap: 0.1,
+    zoomDelta: 0.5,
   });
 
   const TILE_URLS = {
