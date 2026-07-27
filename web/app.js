@@ -266,6 +266,29 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   });
   renderDataToggle();
 
+  // Airport markers (OurAirports data via the server) — off by default
+  const airportToggle = document.getElementById('airport-toggle');
+  let airportsOn = localStorage.getItem('overhead-airports') === '1';
+  let airports = [];
+  async function loadAirports() {
+    try {
+      const r = await fetch(`/airports?lat=${HOME[0]}&lon=${HOME[1]}&radius_nm=${config.radius_nm || 43}`);
+      if (r.ok) airports = (await r.json()).airports || [];
+    } catch { /* markers just stay absent */ }
+  }
+  function renderAirportToggle() {
+    airportToggle.classList.toggle('open', airportsOn);
+    airportToggle.textContent = airportsOn ? '⊕ AIRPORTS ON' : '⊕ AIRPORTS';
+  }
+  airportToggle.addEventListener('click', () => {
+    airportsOn = !airportsOn;
+    localStorage.setItem('overhead-airports', airportsOn ? '1' : '0');
+    renderAirportToggle();
+    if (airportsOn && !airports.length) loadAirports();
+  });
+  renderAirportToggle();
+  if (airportsOn) loadAirports();
+
   // Collapsible list of aircraft currently inside the visible map area
   const listToggle = document.getElementById('list-toggle');
   const listPanel = document.getElementById('list-panel');
@@ -380,6 +403,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (!save.ok) throw new Error('could not save home');
     HOME = [lat, lon];
     targets.clear(); // old area's aircraft vanish; next poll brings the new sky
+    airports = [];
+    if (airportsOn) loadAirports();
     rememberHome({ lat, lon, label });
     homeMsg.textContent = ('→ ' + label).slice(0, 36);
     map.flyTo(HOME, map.getZoom(), { duration: 2.2 }); // arcs out, then back in
@@ -775,6 +800,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       mil: '#ff6a55', milEdge: '#c94a38', milBg: 'rgba(30,10,8,0.93)',
       dim: '#6c7f93',
       ring: '#2b5c52', ringText: '#3f7a6e', home: '#e8f0f7',
+      airport: '#6f8aa5',
       textNormal: ['#7fd4ff', '#d6e6f5', '#f0c674', '#93a7bc'],
       textOverhead: ['#ffd166', '#f3e3bd', '#f0c674', '#bfae87'],
       textMil: ['#ff9c8c', '#f3d6d0', '#f0b3a6', '#c09a92'],
@@ -793,6 +819,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       mil: '#c4675c', milEdge: '#b8564a', milBg: 'rgba(250,235,231,0.96)',
       dim: '#a3a89e',
       ring: '#5e9c88', ringText: '#4a8270', home: '#34435a',
+      airport: '#5f758a',
       textNormal: ['#2a6fae', '#46525c', '#a07818', '#6d7a85'],
       textOverhead: ['#8a5c04', '#513f10', '#a07818', '#7d6a3a'],
       textMil: ['#a5473c', '#5c2c26', '#96554a', '#8a6b64'],
@@ -1033,6 +1060,32 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     ctx.textBaseline = 'alphabetic';
   }
 
+  // Airport markers: diamond + code. Small airports hide beyond 20 mi view.
+  function drawAirports() {
+    const showSmall = currentViewMiles <= 20;
+    const W = canvas.clientWidth;
+    const H = canvas.clientHeight;
+    ctx.font = '10px ui-monospace, "SF Mono", Menlo, monospace';
+    ctx.textBaseline = 'middle';
+    for (const a of airports) {
+      if (a.type === 'small_airport' && !showSmall) continue;
+      const p = map.latLngToContainerPoint([a.lat, a.lon]);
+      if (p.x < -30 || p.y < -30 || p.x > W + 30 || p.y > H + 30) continue;
+      ctx.strokeStyle = COLORS.airport;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - 5);
+      ctx.lineTo(p.x + 5, p.y);
+      ctx.lineTo(p.x, p.y + 5);
+      ctx.lineTo(p.x - 5, p.y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = COLORS.airport;
+      ctx.fillText(a.iata || a.ident, p.x + 9, p.y);
+    }
+    ctx.textBaseline = 'alphabetic';
+  }
+
   let lastFrame = performance.now();
   function frame(now) {
     const dtF = Math.min((now - lastFrame) / 1000, 0.25);
@@ -1041,6 +1094,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
     drawRings();
     drawScale();
+    if (airportsOn && airports.length) drawAirports();
 
     let overheadCount = 0;
     const homePt = map.latLngToContainerPoint(HOME);

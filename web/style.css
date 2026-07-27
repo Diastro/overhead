@@ -144,7 +144,7 @@ body { background: var(--stage-bg); }
   cursor: pointer;
 }
 
-#list-toggle, #home-toggle, #data-toggle {
+#list-toggle, #home-toggle, #data-toggle, #airport-toggle {
   position: absolute;
   top: 14px;
   z-index: 600;
@@ -161,8 +161,10 @@ body { background: var(--stage-bg); }
 #list-toggle { left: 16px; }
 #home-toggle { left: 132px; }
 #data-toggle { left: 230px; }
+#airport-toggle { left: 388px; }
 #list-toggle:hover, #list-toggle.open, #home-toggle:hover,
-#data-toggle:hover, #data-toggle.open {
+#data-toggle:hover, #data-toggle.open,
+#airport-toggle:hover, #airport-toggle.open {
   color: var(--bar-bright);
   border-color: var(--input-border);
 }

@@ -381,6 +381,80 @@ function persistHome() {
 
 let lastGeocodeAt = 0;
 
+// ----------------------------------------------------------------- airports
+// OurAirports public-domain database — downloaded once (~9 MB), cached in
+// data/, parsed lazily on first request.
+let airportsData = null;
+let airportsLoading = null;
+
+function parseCsvLine(line) {
+  const out = [];
+  let cur = '';
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } else inQ = false;
+      } else cur += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === ',') { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+async function ensureAirports() {
+  if (airportsData) return airportsData;
+  if (!airportsLoading) {
+    airportsLoading = (async () => {
+      const p = path.join(ROOT, 'data', 'airports.csv');
+      let text;
+      if (fs.existsSync(p)) {
+        text = fs.readFileSync(p, 'utf8');
+      } else {
+        const res = await fetch('https://davidmegginson.github.io/ourairports-data/airports.csv', {
+          signal: AbortSignal.timeout(60000),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        text = await res.text();
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, text);
+        console.log('[airports] downloaded OurAirports database');
+      }
+      const lines = text.split('\n');
+      const header = parseCsvLine(lines[0]);
+      const ci = {
+        ident: header.indexOf('ident'),
+        type: header.indexOf('type'),
+        name: header.indexOf('name'),
+        lat: header.indexOf('latitude_deg'),
+        lon: header.indexOf('longitude_deg'),
+        iata: header.indexOf('iata_code'),
+      };
+      const keep = new Set(['large_airport', 'medium_airport', 'small_airport']);
+      const out = [];
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i]) continue;
+        const r = parseCsvLine(lines[i]);
+        if (!keep.has(r[ci.type])) continue;
+        const lat = Number(r[ci.lat]);
+        const lon = Number(r[ci.lon]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+        out.push({ ident: r[ci.ident], type: r[ci.type], name: r[ci.name], lat, lon, iata: r[ci.iata] || null });
+      }
+      airportsData = out;
+      console.log(`[airports] ${out.length} airports indexed`);
+      return out;
+    })().catch((err) => {
+      airportsLoading = null; // allow retry
+      throw err;
+    });
+  }
+  return airportsLoading;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
@@ -500,6 +574,29 @@ const server = http.createServer(async (req, res) => {
     clients.add(res);
     req.on('close', () => clients.delete(res));
     res.on('error', () => clients.delete(res));
+    return;
+  }
+
+  if (url.pathname === '/airports') {
+    const lat = Number(url.searchParams.get('lat'));
+    const lon = Number(url.searchParams.get('lon'));
+    const radius = Math.min(Number(url.searchParams.get('radius_nm')) || RADIUS_NM, 250);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) { res.writeHead(400).end(); return; }
+    try {
+      const all = await ensureAirports();
+      const nearby = [];
+      for (const a of all) {
+        const dLat = (a.lat - lat) * 60;
+        const dLon = (a.lon - lon) * 60 * Math.cos((lat * Math.PI) / 180);
+        if (Math.hypot(dLat, dLon) <= radius) nearby.push(a);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ airports: nearby.slice(0, 400) }));
+    } catch (err) {
+      console.error(`[airports] ${err.message}`);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'airport database unavailable' }));
+    }
     return;
   }
 
