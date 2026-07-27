@@ -249,6 +249,25 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (best) best.detailUntil = Date.now() + DETAIL_MS;
   });
 
+  // Hovering on/near an aircraft shows its block; it hides on hover-away
+  // unless clicked (the 7 s click rule is unchanged).
+  let hoveredHex = null;
+  map.on('mousemove', (e) => {
+    let best = null;
+    let bestD = 26; // px hover radius
+    for (const t of targets.values()) {
+      const p = map.latLngToContainerPoint([t.shown.lat, t.shown.lon]);
+      const d = Math.hypot(p.x - e.containerPoint.x, p.y - e.containerPoint.y);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    hoveredHex = best ? best.meta.hex : null;
+    mapEl.style.cursor = best ? 'pointer' : '';
+  });
+  map.on('mouseout', () => {
+    hoveredHex = null;
+    mapEl.style.cursor = '';
+  });
+
   // Military fly-by: when a military aircraft newly appears inside coverage,
   // zoom to ~3 mi around it for 15 s, then return to the home view. At most
   // one such zoom per minute.
@@ -1221,6 +1240,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
           showBlock = true;
           blockAlpha = Math.min(1, left / 600); // fade out over the last 0.6 s
         }
+      }
+      // Map hover: the pointed-at aircraft always shows its block
+      if (hoveredHex && t.meta.hex === hoveredHex) {
+        showBlock = true;
+        blockAlpha = 1;
       }
       // List hover-isolate overrides everything: only the hovered aircraft
       // keeps its block while the pointer is on the list.
