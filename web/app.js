@@ -992,9 +992,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     ctx.stroke();
   }
 
-  // Striped liveries: Coast Guard (red/blue), police (blue/white). Patterns
-  // are anchored to the current transform, so stripes rotate with the icon.
-  // Cache per theme (cleared in applyTheme).
+  // Diagonal stripe fills for the data-block tag bands: Coast Guard
+  // (red/blue), police (blue/white). Cache per theme (cleared in applyTheme).
   let stripeCache = {};
   function stripePattern(key, base, stripe) {
     if (stripeCache[key]) return stripeCache[key];
@@ -1037,6 +1036,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       police: '#5d8bff', policeEdge: '#3f6ae0', policeBg: 'rgba(10,14,34,0.93)',
       policeFlash: '#cfe0ff',
       policeWhite: '#eef4ff', // stripe partner for the police livery
+      cgIcon: '#ff9d5c', // USCG rescue orange
       textPolice: ['#9db8ff', '#dbe4ff', '#b9c8f5', '#8fa0d8'],
       hiMix: 0.55, // how far the selected-block border lightens toward white
     },
@@ -1058,6 +1058,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       police: '#2c50c8', policeEdge: '#2c50c8', policeBg: 'rgba(233,238,252,0.96)',
       policeFlash: '#7fa0f0',
       policeWhite: '#ffffff', // stripe partner for the police livery
+      cgIcon: '#c76b28', // USCG rescue orange
       textPolice: ['#22409f', '#2c3a55', '#3f57a8', '#5a6a95'],
       hiMix: 0.3, // lighter mix on the cream background so the border stays visible
     },
@@ -1119,7 +1120,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
 
   function drawBlock(x, y, side, lines, opts) {
-    const { overhead, dimmed, mil, police, highlight, alpha = 1 } = opts;
+    const { overhead, dimmed, mil, police, cg, highlight, alpha = 1 } = opts;
     ctx.font = MONO;
     const padX = 12, lineH = 19, padTop = 8;
     const w = opts.width;
@@ -1158,17 +1159,30 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
     let ty = by + padTop;
     if (tagged) {
-      ctx.fillStyle = edge;
+      // Coast Guard band: red/blue diagonal stripes; police: blue/white
+      ctx.fillStyle = cg ? stripePattern('cgBand', COLORS.mil, COLORS.police)
+        : police ? stripePattern('policeBand', COLORS.police, COLORS.policeWhite)
+        : edge;
       ctx.beginPath();
       ctx.roundRect(bx, by, w, 20, [3, 3, 0, 0]);
       ctx.fill();
-      ctx.fillStyle = COLORS.tagText;
       ctx.font = '700 11px ui-monospace, "SF Mono", Menlo, monospace';
       ctx.textBaseline = 'middle';
-      const tag = mil && overhead ? 'M I L · O V E R H E A D' : mil ? 'M I L I T A R Y'
+      const tag = cg && overhead ? 'C G · O V E R H E A D' : cg ? 'C O A S T · G U A R D'
+        : mil && overhead ? 'M I L · O V E R H E A D' : mil ? 'M I L I T A R Y'
         : police && overhead ? 'P O L I C E · O V E R H E A D' : police ? 'P O L I C E'
         : 'O V E R H E A D';
-      ctx.fillText(tag, bx + padX, by + 10.5);
+      if (cg || police) {
+        // white with a dark halo — readable over either stripe color
+        ctx.fillStyle = '#f5f7fa';
+        ctx.shadowColor = 'rgba(0,0,0,0.75)';
+        ctx.shadowBlur = 3;
+        ctx.fillText(tag, bx + padX, by + 10.5);
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.fillStyle = COLORS.tagText;
+        ctx.fillText(tag, bx + padX, by + 10.5);
+      }
       ty += tagH;
     }
 
@@ -1450,18 +1464,16 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         ctx.globalAlpha = 1;
       }
 
-      // icon — Coast Guard red/blue diagonal stripes; other military solid
-      // red; police blue/white diagonal stripes, "flashing" by swapping the
-      // stripe colors (steady under prefers-reduced-motion)
+      // icon — Coast Guard rescue orange; other military red; police flash
+      // blue (steady under prefers-reduced-motion). Stripes live on the data
+      // block's tag band, not the airframe.
       ctx.save();
       ctx.translate(pt.x, pt.y);
       const flashOn = !REDUCED_MOTION && Math.floor(nowMs / 400) % 2 === 1;
       ctx.fillStyle = ctx.strokeStyle =
-        t.meta.cg ? stripePattern('cg', COLORS.mil, COLORS.police)
+        t.meta.cg ? COLORS.cgIcon
         : mil ? COLORS.mil
-        : police ? (flashOn
-            ? stripePattern('policeB', COLORS.policeWhite, COLORS.police)
-            : stripePattern('policeA', COLORS.police, COLORS.policeWhite))
+        : police ? (flashOn ? COLORS.policeFlash : COLORS.police)
         : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
       ctx.rotate((t.shown.track * Math.PI) / 180);
       if (t.meta.heli) {
@@ -1503,7 +1515,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         const lines = blockLines(t);
         const highlight = (t.detailUntil || 0) > nowMs || t.meta.hex === focusedHex;
         blockQueue.push([pt.x, pt.y, side, lines, {
-          overhead, dimmed, mil, police, highlight, alpha: blockAlpha, width: blockWidth(t, lines),
+          overhead, dimmed, mil, police, cg: !!t.meta.cg, highlight,
+          alpha: blockAlpha, width: blockWidth(t, lines),
         }]);
       }
     }
