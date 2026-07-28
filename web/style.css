@@ -113,6 +113,10 @@ body { background: var(--stage-bg); }
   inset: 0;
   background: var(--stage-bg);
 }
+/* Lift the dark basemap's road/shoreline lines a touch — multiplicative
+   brightness barely moves the near-black ground but makes outlines pop. */
+#map .leaflet-tile-pane { filter: brightness(1.3); }
+body.light #map .leaflet-tile-pane { filter: none; }
 #scope {
   position: absolute;
   inset: 0;
