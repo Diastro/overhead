@@ -39,6 +39,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // consts are not hoisted (a TDZ crash here bricks the whole app).
   const NM_PER_MI = 0.868976;
   const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Embedded in the edge-loader kiosk shell: the shell draws the chrome, so
+  // this app hides its own header and takes commands over postMessage.
+  const EMBED = new URLSearchParams(location.search).get('embed') === '1';
   const TRAIL_FADE_MS = (config.trail_fade_seconds ?? 60) * 1000;
   const DETAIL_MS = (config.detail_click_seconds ?? 7) * 1000;
   const MAX_VIEW_MI = 100;
@@ -107,6 +110,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     tiles = L.tileLayer(url, TILE_OPTS).addTo(map);
     setTimeout(() => old.remove(), 400); // let the new layer paint first
   }
+
+  if (EMBED) document.body.classList.add('embed');
 
   const canvas = document.getElementById('scope');
   const ctx = canvas.getContext('2d');
@@ -182,7 +187,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   applyRange(Number(rangeInput.value));
 
   // Effective view radius in miles (tracks slider AND manual pan/zoom) and the
-  // too-wide banner: the feed only covers 50 mi around home.
+  // too-wide banner: the feed only covers MAX_VIEW_MI around home.
   let currentViewMiles = vm.default;
   let suppressRangeSync = false; // set during scripted zooms (military fly-by)
   const banner = document.getElementById('wide-banner');
@@ -402,21 +407,27 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
 
   const layerBoxes = [...layersPanel.querySelectorAll('input')];
+  // Single entry point for layer changes: the checkboxes call it, and so does
+  // the kiosk shell's overlay (see the message handler at the bottom).
+  function setLayer(name, on) {
+    const next = on === undefined ? !layers[name] : !!on;
+    layers[name] = next;
+    const box = layerBoxes.find((b) => b.dataset.layer === name);
+    if (box) box.checked = next;
+    localStorage.setItem('overhead-layers', JSON.stringify(layers));
+    if (name === 'airports' && next && !airports.length) loadAirports();
+    if (name === 'airspace') {
+      if (next) {
+        if (airspaceLayer) airspaceLayer.addTo(map);
+        else loadAirspace();
+      } else if (airspaceLayer) {
+        map.removeLayer(airspaceLayer);
+      }
+    }
+  }
   layerBoxes.forEach((box) => {
     box.checked = !!layers[box.dataset.layer];
-    box.addEventListener('change', () => {
-      layers[box.dataset.layer] = box.checked;
-      localStorage.setItem('overhead-layers', JSON.stringify(layers));
-      if (box.dataset.layer === 'airports' && box.checked && !airports.length) loadAirports();
-      if (box.dataset.layer === 'airspace') {
-        if (box.checked) {
-          if (airspaceLayer) airspaceLayer.addTo(map);
-          else loadAirspace();
-        } else if (airspaceLayer) {
-          map.removeLayer(airspaceLayer);
-        }
-      }
-    });
+    box.addEventListener('change', () => setLayer(box.dataset.layer, box.checked));
   });
   layersToggle.addEventListener('click', () => {
     const open = layersPanel.classList.toggle('open');
@@ -849,8 +860,20 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   let feedState = { ok: false, source: '…', lastOkAt: 0 };
   let milSeeded = false; // first snapshot's military targets must not auto-zoom
 
-  const es = new EventSource('/events');
-  es.onmessage = (e) => {
+  // The stream is opened through a function so an embedded copy can drop the
+  // connection while it is off screen and pick it up again on return.
+  let es = null;
+  function connectFeed() {
+    if (es) return;
+    es = new EventSource('/events');
+    es.onmessage = onFeedMessage;
+  }
+  function disconnectFeed() {
+    if (!es) return;
+    es.close();
+    es = null;
+  }
+  function onFeedMessage(e) {
     const payload = JSON.parse(e.data);
     feedState.source = payload.source;
     updateBandwidth(payload);
@@ -926,7 +949,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }
     if (milCandidate && milSeeded) maybeMilZoom(milCandidate);
     milSeeded = true; // aircraft in the startup snapshot were already there
-  };
+  }
+  connectFeed();
 
   // Coming back after the tab/display was hidden: rAF was frozen the whole
   // time, so drawn positions are stale. Snap every target to current truth
@@ -936,7 +960,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
+    resumeFromHidden();
+  });
+  function resumeFromHidden() {
     if (!hiddenAt || Date.now() - hiddenAt < 5000) return;
+    hiddenAt = 0;
     const staleLimit = (STALE_MS[bwMode] || STALE_MS.high)[1];
     for (const [hex, t] of targets) {
       t.corr = null;
@@ -949,7 +977,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       canvas.style.transition = 'opacity 0.7s ease';
       canvas.style.opacity = '1';
     }
-  });
+  }
 
   // ------------------------------------------------------------------ icons
   // Jet/airliner: swept wings
@@ -1016,6 +1044,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // ------------------------------------------------------------------ render
   const MONO = '13px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
   const MONO_BOLD = '700 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+  const TAG_FONT = '700 11px ui-monospace, "SF Mono", Menlo, monospace';
 
   const THEMES = {
     dark: {
@@ -1119,11 +1148,22 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
   function drawBlock(x, y, side, lines, opts) {
     const { overhead, dimmed, mil, police, cg, highlight, alpha = 1 } = opts;
-    ctx.font = MONO;
     const padX = 12, lineH = 19, padTop = 8;
-    const w = opts.width;
     const tagged = overhead || mil || police;
     const tagH = tagged ? 20 : 0;
+    const tag = !tagged ? null
+      : cg && overhead ? 'C G · O V E R H E A D' : cg ? 'C O A S T · G U A R D'
+      : mil && overhead ? 'M I L · O V E R H E A D' : mil ? 'M I L I T A R Y'
+      : police && overhead ? 'P O L I C E · O V E R H E A D' : police ? 'P O L I C E'
+      : 'O V E R H E A D';
+    let w = opts.width;
+    if (tag) {
+      // the band label can out-measure the data lines (COAST·GUARD over a
+      // callsign-only block) — widen so the label pill never overflows
+      ctx.font = TAG_FONT;
+      w = Math.max(w, Math.ceil(ctx.measureText(tag).width) + padX * 2);
+    }
+    ctx.font = MONO;
     const h = padTop * 2 + lineH * lines.length + tagH - 4;
 
     const bx = side === 'right' ? x + 26 : x - 26 - w;
@@ -1164,12 +1204,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       ctx.beginPath();
       ctx.roundRect(bx, by, w, 20, [3, 3, 0, 0]);
       ctx.fill();
-      ctx.font = '700 11px ui-monospace, "SF Mono", Menlo, monospace';
+      ctx.font = TAG_FONT;
       ctx.textBaseline = 'middle';
-      const tag = cg && overhead ? 'C G · O V E R H E A D' : cg ? 'C O A S T · G U A R D'
-        : mil && overhead ? 'M I L · O V E R H E A D' : mil ? 'M I L I T A R Y'
-        : police && overhead ? 'P O L I C E · O V E R H E A D' : police ? 'P O L I C E'
-        : 'O V E R H E A D';
       if (cg || police) {
         // solid dark pill under the label — a halo alone washes out on the
         // light stripes
@@ -1531,9 +1567,51 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }
 
     updateBar(overheadCount);
-    requestAnimationFrame(frame);
+    if (!paused) requestAnimationFrame(frame);
   }
+  let paused = false; // set by the kiosk shell below; declared before the loop starts
   requestAnimationFrame(frame);
+
+  // ------------------------------------------------- kiosk shell (embed mode)
+  // The edge-loader shell hides this app in a display:none iframe when another
+  // view is on screen. Hidden iframes never fire visibilitychange, so the shell
+  // tells us directly: stop the draw loop and drop the feed, then pick both up
+  // on the way back. An off-screen copy costs nothing.
+  function setPaused(next) {
+    if (paused === next) return;
+    paused = next;
+    if (paused) {
+      hiddenAt = Date.now();
+      disconnectFeed();
+      return;
+    }
+    connectFeed();
+    lastFrame = performance.now(); // don't bill the pause to the first frame
+    requestAnimationFrame(frame);
+    resumeFromHidden();
+  }
+
+  // Overlay buttons in the shell map onto the controls this app already has.
+  const SHELL_COMMANDS = {
+    home: () => homeToggle.click(),
+    zoomIn: () => map.zoomIn(1),
+    zoomOut: () => map.zoomOut(1),
+    trails: (on) => setLayer('trails', on),
+    blocks: (on) => setLayer('blocks', on),
+    airports: (on) => setLayer('airports', on),
+    list: () => listToggle.click(),
+    settings: () => bwEl.click(),
+  };
+  window.addEventListener('message', (e) => {
+    const msg = e.data;
+    if (!msg || msg.source !== 'edge-loader') return;
+    if (msg.type === 'visibility') { setPaused(!msg.visible); return; }
+    if (msg.type === 'command') SHELL_COMMANDS[msg.cmd]?.(msg.on);
+  });
+  // Announce readiness so the shell can re-assert visibility to a slow loader.
+  if (EMBED && window.parent !== window) {
+    window.parent.postMessage({ source: 'edge-app', type: 'ready', app: 'overhead' }, '*');
+  }
 
   // ------------------------------------------------------------- status bar
   const el = {

@@ -6,7 +6,7 @@
     "_comment": "Generic default (SEA airport). Set your real location in the app via the HOME button - it is stored in your browser, not on disk."
   },
   "radius_nm": 87,
-  "view_miles": { "min": 4, "max": 40, "default": 15 },
+  "view_miles": { "min": 1, "max": 50, "default": 15 },
   "poll_seconds": 3,
   "rings_nm": [3, 5, 10],
   "overhead_nm": 3,
