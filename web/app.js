@@ -269,6 +269,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // Hovering on/near an aircraft shows its block; it hides on hover-away
   // unless clicked (the 7 s click rule is unchanged).
   let hoveredHex = null;
+  let hoveredAirport = null;
   map.on('mousemove', (e) => {
     let best = null;
     let bestD = 26; // px hover radius
@@ -278,10 +279,24 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (d < bestD) { bestD = d; best = t; }
     }
     hoveredHex = best ? best.meta.hex : null;
-    mapEl.style.cursor = best ? 'pointer' : '';
+    // Airports second — an aircraft over the field wins the hover. Only match
+    // markers actually drawn (small fields hide beyond the 20 mi view).
+    hoveredAirport = null;
+    if (!best && layers.airports) {
+      const showSmall = currentViewMiles <= 20;
+      let aD = 18;
+      for (const a of airports) {
+        if (a.type === 'small_airport' && !showSmall) continue;
+        const p = map.latLngToContainerPoint([a.lat, a.lon]);
+        const d = Math.hypot(p.x - e.containerPoint.x, p.y - e.containerPoint.y);
+        if (d < aD) { aD = d; hoveredAirport = a; }
+      }
+    }
+    mapEl.style.cursor = best || hoveredAirport ? 'pointer' : '';
   });
   map.on('mouseout', () => {
     hoveredHex = null;
+    hoveredAirport = null;
     mapEl.style.cursor = '';
   });
 
@@ -415,6 +430,17 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     listToggle.classList.add('open');
   }
 
+  // Ground traffic is off the list by default — taxiing/parked aircraft at a
+  // big airport would swamp the nearest rows. The map still draws them grey.
+  const groundToggle = document.getElementById('ground-toggle');
+  let listGround = localStorage.getItem('overhead-list-ground') === '1';
+  groundToggle.checked = listGround;
+  groundToggle.addEventListener('change', () => {
+    listGround = groundToggle.checked;
+    localStorage.setItem('overhead-list-ground', listGround ? '1' : '0');
+    renderList(true);
+  });
+
   // Hovering a row isolates that aircraft: every other data block on the map
   // hides until the pointer leaves the list.
   let focusedHex = null;
@@ -426,12 +452,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (li) focusedHex = li.dataset.hex;
   });
 
-  function renderList() {
+  function renderList(force) {
     if (!listPanel.classList.contains('open')) return;
-    if (listHovered) return; // keep rows stable under the cursor
+    // keep rows stable under the cursor — except when the ground toggle just
+    // changed (the pointer is necessarily inside the panel then)
+    if (listHovered && !force) return;
     const bounds = map.getBounds();
     const rows = [];
     for (const t of targets.values()) {
+      if (!listGround && t.fix.onGround) continue;
       if (!bounds.contains([t.shown.lat, t.shown.lon])) continue;
       rows.push([distNm(HOME[0], HOME[1], t.shown.lat, t.shown.lon), t]);
     }
@@ -943,6 +972,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       police: '#5d8bff', policeEdge: '#3f6ae0', policeBg: 'rgba(10,14,34,0.93)',
       policeFlash: '#cfe0ff',
       textPolice: ['#9db8ff', '#dbe4ff', '#b9c8f5', '#8fa0d8'],
+      hiMix: 0.55, // how far the selected-block border lightens toward white
     },
     light: {
       icon: '#3a7ca5', trail: '#6aa5c8', leader: '#a3a08c',
@@ -962,6 +992,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       police: '#2c50c8', policeEdge: '#2c50c8', policeBg: 'rgba(233,238,252,0.96)',
       policeFlash: '#7fa0f0',
       textPolice: ['#22409f', '#2c3a55', '#3f57a8', '#5a6a95'],
+      hiMix: 0.3, // lighter mix on the cream background so the border stays visible
     },
   };
   let COLORS = THEMES.dark;
@@ -1020,7 +1051,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
 
   function drawBlock(x, y, side, lines, opts) {
-    const { overhead, dimmed, mil, police, alpha = 1 } = opts;
+    const { overhead, dimmed, mil, police, highlight, alpha = 1 } = opts;
     ctx.font = MONO;
     const padX = 12, lineH = 19, padTop = 8;
     const w = opts.width;
@@ -1035,20 +1066,23 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       : overhead ? COLORS.amberEdge : COLORS.blockEdge;
     const bg = mil ? COLORS.milBg : police ? COLORS.policeBg
       : overhead ? COLORS.amberBg : COLORS.blockBg;
+    // clicked or list-highlighted: lighter, heavier border (tag band keeps
+    // its normal color so MIL/POLICE bands don't wash out)
+    const borderEdge = highlight ? lerpHex(edge, '#ffffff', COLORS.hiMix) : edge;
 
     ctx.globalAlpha = alpha * (dimmed ? 0.55 : 1);
 
     // leader line to nearest block corner
-    ctx.strokeStyle = tagged ? edge : COLORS.leader;
-    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = highlight ? borderEdge : tagged ? edge : COLORS.leader;
+    ctx.lineWidth = highlight ? 1.8 : 1.2;
     ctx.beginPath();
     ctx.moveTo(x + (side === 'right' ? 12 : -12), y);
     ctx.lineTo(side === 'right' ? bx : bx + w, by + h / 2);
     ctx.stroke();
 
     ctx.fillStyle = bg;
-    ctx.strokeStyle = edge;
-    ctx.lineWidth = tagged ? 1.4 : 1;
+    ctx.strokeStyle = borderEdge;
+    ctx.lineWidth = highlight ? 2.2 : tagged ? 1.4 : 1;
     ctx.beginPath();
     ctx.roundRect(bx, by, w, h, 3);
     ctx.fill();
@@ -1222,6 +1256,51 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     ctx.textBaseline = 'alphabetic';
   }
 
+  // Hovering an airport marker shows a small info card (name, elevation, …)
+  function drawAirportTip(a) {
+    const pt = map.latLngToContainerPoint([a.lat, a.lon]);
+    const kind = a.type.replace('_airport', '').toUpperCase();
+    const distMi = distNm(HOME[0], HOME[1], a.lat, a.lon) / NM_PER_MI;
+    const lines = [
+      a.iata && a.iata !== a.ident ? `${a.ident} · ${a.iata}` : a.ident,
+      a.name,
+      [a.muni, `${kind} AIRPORT`].filter(Boolean).join(' · '),
+      `${a.elev != null ? `ELEV ${Math.round(a.elev).toLocaleString()} FT` : 'ELEV —'} · ${distMi.toFixed(1)} MI FROM HOME`,
+    ];
+    ctx.font = MONO;
+    const padX = 12, lineH = 19, padTop = 8;
+    let w = 0;
+    for (const s of lines) w = Math.max(w, ctx.measureText(s).width);
+    w += padX * 2;
+    const h = padTop * 2 + lineH * lines.length - 4;
+    const side = pt.x < canvas.clientWidth / 2 ? 'right' : 'left';
+    const bx = side === 'right' ? pt.x + 18 : pt.x - 18 - w;
+    const by = pt.y - h / 2;
+
+    ctx.strokeStyle = COLORS.airport;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(pt.x + (side === 'right' ? 7 : -7), pt.y);
+    ctx.lineTo(side === 'right' ? bx : bx + w, by + h / 2);
+    ctx.stroke();
+
+    ctx.fillStyle = COLORS.blockBg;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, w, h, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textBaseline = 'top';
+    let ty = by + padTop;
+    lines.forEach((s, i) => {
+      ctx.font = i === 0 ? MONO_BOLD : MONO;
+      ctx.fillStyle = i === 0 ? COLORS.textNormal[0] : i === 1 ? COLORS.textNormal[1] : COLORS.textNormal[3];
+      ctx.fillText(s, bx + padX, ty + 2);
+      ty += lineH;
+    });
+    ctx.textBaseline = 'alphabetic';
+  }
+
   let lastFrame = performance.now();
   function frame(now) {
     const dtF = Math.min((now - lastFrame) / 1000, 0.25);
@@ -1346,12 +1425,14 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (showBlock) {
         const side = pt.x < canvas.clientWidth / 2 ? 'right' : 'left';
         const lines = blockLines(t);
+        const highlight = (t.detailUntil || 0) > nowMs || t.meta.hex === focusedHex;
         blockQueue.push([pt.x, pt.y, side, lines, {
-          overhead, dimmed, mil, police, alpha: blockAlpha, width: blockWidth(t, lines),
+          overhead, dimmed, mil, police, highlight, alpha: blockAlpha, width: blockWidth(t, lines),
         }]);
       }
     }
     for (const args of blockQueue) drawBlock(...args);
+    if (hoveredAirport && layers.airports) drawAirportTip(hoveredAirport);
 
     updateBar(overheadCount);
     requestAnimationFrame(frame);

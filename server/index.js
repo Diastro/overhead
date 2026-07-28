@@ -418,6 +418,8 @@ async function ensureAirports() {
         lat: header.indexOf('latitude_deg'),
         lon: header.indexOf('longitude_deg'),
         iata: header.indexOf('iata_code'),
+        elev: header.indexOf('elevation_ft'),
+        muni: header.indexOf('municipality'),
       };
       const keep = new Set(['large_airport', 'medium_airport', 'small_airport']);
       const out = [];
@@ -428,7 +430,13 @@ async function ensureAirports() {
         const lat = Number(r[ci.lat]);
         const lon = Number(r[ci.lon]);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-        out.push({ ident: r[ci.ident], type: r[ci.type], name: r[ci.name], lat, lon, iata: r[ci.iata] || null });
+        const elev = r[ci.elev] === '' ? NaN : Number(r[ci.elev]);
+        out.push({
+          ident: r[ci.ident], type: r[ci.type], name: r[ci.name], lat, lon,
+          iata: r[ci.iata] || null,
+          elev: Number.isFinite(elev) ? elev : null,
+          muni: r[ci.muni] || null,
+        });
       }
       airportsData = out;
       console.log(`[airports] ${out.length} airports indexed`);

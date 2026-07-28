@@ -230,6 +230,19 @@ body.light #map .leaflet-tile-pane { filter: none; }
   color: var(--bar-bright);
   border-bottom: 1px solid var(--panel-line);
 }
+#list-ground {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--panel-line);
+}
+#list-ground input { accent-color: var(--accent); cursor: pointer; }
 #ac-list {
   margin: 0;
   padding: 4px 0;
