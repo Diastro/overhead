@@ -41,7 +41,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const TRAIL_FADE_MS = (config.trail_fade_seconds ?? 60) * 1000;
   const DETAIL_MS = (config.detail_click_seconds ?? 7) * 1000;
-  const MAX_VIEW_MI = 50;
+  const MAX_VIEW_MI = 100;
   const OVERHEAD_MAX_FT = config.overhead_max_ft ?? 18000;
   const PROJECT_CAP_S = 60; // must exceed LOW mode's 45 s full-sweep interval
 
