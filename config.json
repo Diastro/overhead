@@ -3,7 +3,7 @@
     "lat": 47.4502,
     "lon": -122.3088,
     "label": "HOME",
-    "_comment": "EDIT ME: set lat/lon to your house. Default is Seattle, WA."
+    "_comment": "Generic default (SEA airport). Set your real location in the app via the HOME button - it is stored in your browser, not on disk."
   },
   "radius_nm": 43,
   "view_miles": { "min": 4, "max": 40, "default": 15 },

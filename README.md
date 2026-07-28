@@ -46,3 +46,22 @@ web/
 data/                Machine-written, gitignored: usage.json (bandwidth
                      counters), airports.csv (OurAirports cache), server.log.
 ```
+
+Personal settings (home location, bandwidth mode, theme, layers) live in the
+browser's localStorage — nothing personal is written to disk or committed.
+
+## License & data credits
+
+Code is MIT licensed (see `LICENSE`). Bundled/consumed third parties:
+
+- [Leaflet](https://leafletjs.com) — BSD-2-Clause (vendored; see
+  `web/vendor/LEAFLET-LICENSE.txt`)
+- Basemaps © [OpenStreetMap](https://www.openstreetmap.org/copyright)
+  contributors, © [CARTO](https://carto.com/attributions) — attribution must
+  stay visible in the app
+- Live aircraft data: [airplanes.live](https://airplanes.live) /
+  [adsb.lol](https://adsb.lol) community feeds — non-commercial use
+- Geocoding: [Nominatim](https://nominatim.org) (OpenStreetMap) — rate-limited
+  per their usage policy
+- Airports: [OurAirports](https://ourairports.com/data/) — public domain
+- Airspace: FAA open data — US Government work, public domain

@@ -12,9 +12,9 @@ const ROOT = path.join(__dirname, '..');
 const WEB = path.join(ROOT, 'web');
 
 function loadConfig() {
-  // config.json is committed and should fail loud; config.local.json is
-  // machine-written, so a corrupted file (power cut mid-write) must never
-  // brick the kiosk at boot — fall back to base config and complain.
+  // config.json is committed and should fail loud. config.local.json is a
+  // legacy/manual override (no longer written by the app — settings live in
+  // the browser); a corrupted one must never brick boot.
   const base = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
   const localPath = path.join(ROOT, 'config.local.json');
   if (fs.existsSync(localPath)) {
@@ -361,23 +361,9 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-// Persist settings to config.local.json (gitignored) — the user's real
-// coordinates and preferences never land in the committed config.
-function updateLocalConfig(patch) {
-  const p = path.join(ROOT, 'config.local.json');
-  let local = {};
-  try { local = JSON.parse(fs.readFileSync(p, 'utf8')); } catch {}
-  Object.assign(local, patch);
-  try {
-    writeJsonAtomic(p, local, true);
-  } catch (err) {
-    console.error(`[config] save failed: ${err.message}`);
-  }
-}
-
-function persistHome() {
-  updateLocalConfig({ home: { lat: config.home.lat, lon: config.home.lon } });
-}
+// Personal settings (home, bandwidth mode) are held in memory only — the
+// browser owns them (localStorage) and re-asserts them on connect, so nothing
+// personal is ever written to disk on the server side.
 
 let lastGeocodeAt = 0;
 
@@ -540,7 +526,6 @@ const server = http.createServer(async (req, res) => {
         const { mode } = JSON.parse(body);
         if (!BW_MODES.has(mode)) throw new Error('bad mode');
         bwMode = mode;
-        updateLocalConfig({ bandwidth_mode: mode });
         console.log(`[feed] bandwidth mode: ${mode}`);
         if (mode === 'high') poll('full');
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -590,8 +575,7 @@ const server = http.createServer(async (req, res) => {
             Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('bad coords');
         config.home.lat = lat;
         config.home.lon = lon;
-        persistHome();
-        console.log(`[home] moved to ${lat}, ${lon}`);
+        console.log('[home] moved (in-memory only)');
         poll(); // refresh the sky around the new home right away
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));

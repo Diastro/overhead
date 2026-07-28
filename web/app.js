@@ -16,7 +16,24 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 (async function main() {
   const config = await (await fetch('/config')).json();
   const usageSeed = await fetch('/usage').then((r) => r.json()).catch(() => null);
+
+  // Home lives in the browser's storage; the server only holds it in memory.
+  // On connect we adopt the stored home and re-assert it server-side.
   let HOME = [config.home.lat, config.home.lon];
+  try {
+    const storedHome = JSON.parse(localStorage.getItem('overhead-home'));
+    if (storedHome && Number.isFinite(storedHome.lat) && Number.isFinite(storedHome.lon)) {
+      HOME = [storedHome.lat, storedHome.lon];
+      fetch('/home', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: HOME[0], lon: HOME[1] }),
+      }).catch(() => {});
+    } else {
+      // first run: adopt whatever the server has (legacy local config or default)
+      localStorage.setItem('overhead-home', JSON.stringify({ lat: HOME[0], lon: HOME[1] }));
+    }
+  } catch { /* keep server default */ }
 
   // Shared constants — keep at the top: init code below runs immediately and
   // consts are not hoisted (a TDZ crash here bricks the whole app).
@@ -497,6 +514,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     });
     if (!save.ok) throw new Error('could not save home');
     HOME = [lat, lon];
+    localStorage.setItem('overhead-home', JSON.stringify({ lat, lon, label }));
     targets.clear(); // old area's aircraft vanish; next poll brings the new sky
     airports = [];
     if (layers.airports) loadAirports();
@@ -590,16 +608,29 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     bwModeBtns.forEach((b) => b.classList.toggle('active', b.dataset.mode === bwMode));
     bwModeNote.textContent = BW_NOTES[bwMode];
   }
+  function postBwMode(mode) {
+    return fetch('/bwmode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+  }
   bwModeBtns.forEach((b) => b.addEventListener('click', () => {
     const prev = bwMode;
     bwMode = b.dataset.mode;
+    localStorage.setItem('overhead-bwmode', bwMode);
     renderBwMode();
-    fetch('/bwmode', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: bwMode }),
-    }).catch(() => { bwMode = prev; renderBwMode(); });
+    postBwMode(bwMode).catch(() => { bwMode = prev; renderBwMode(); });
   }));
+  // Browser storage owns the mode; re-assert it on connect (server holds it
+  // in memory only).
+  {
+    const stored = localStorage.getItem('overhead-bwmode');
+    if (stored && BW_NOTES[stored]) {
+      bwMode = stored;
+      postBwMode(stored).catch(() => {});
+    }
+  }
   renderBwMode();
 
   function hexA(hex, a) {
