@@ -1490,8 +1490,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // for aircraft inside the overhead ring, ALL for every airborne one.
       // Ground aircraft never show a block on their own (click for 7 s), but
       // airborne-and-slow is a hovering helicopter, not a parked plane.
-      // Military targets always carry their block (any mode, even on ground)
-      let showBlock = layers.blocks && (mil || (!f.onGround && (dataMode === 'all' || overhead)));
+      // Military targets always carry their block (any mode, even on ground);
+      // Coast Guard is the exception — it follows the normal display rules
+      let showBlock = layers.blocks &&
+        ((mil && !t.meta.cg) || (!f.onGround && (dataMode === 'all' || overhead)));
       let blockAlpha = 1;
       if (!showBlock && t.detailUntil) {
         const left = t.detailUntil - nowMs;
