@@ -308,6 +308,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // flickering at coverage edge must not re-yank the display every minute
   function maybeMilZoom(ac) {
     const now = Date.now();
+    if (document.hidden) return; // rAF is frozen — flyTo would strand mid-flight
     if (milZoom.active || now - milZoom.lastAt < 60000) return;
     if ((milAlerted.get(ac.hex) || 0) > now - 1800000) return; // 30 min per airframe
     if (distNm(HOME[0], HOME[1], ac.lat, ac.lon) > MAX_VIEW_MI * NM_PER_MI) return;
@@ -886,10 +887,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       } else if (!samePos) {
         // Absorb the fix discontinuity: remember where the plane is drawn vs.
         // where the new projection says it should be, and decay that offset —
-        // screen motion stays continuous instead of chasing a jump.
+        // screen motion stays continuous instead of chasing a jump. Two
+        // exceptions snap instead: a hidden tab (rAF is frozen, so shown is
+        // stale and the offset would replay as a cross-screen slide on
+        // refocus) and jumps too large to plausibly animate.
         const age0 = (Date.now() - fix.at) / 1000;
         const [nLat, nLon] = projectState(fix, age0);
-        t.corr = { dLat: t.shown.lat - nLat, dLon: t.shown.lon - nLon, at: Date.now() };
+        t.corr = document.hidden || distNm(t.shown.lat, t.shown.lon, nLat, nLon) > 2
+          ? null
+          : { dLat: t.shown.lat - nLat, dLon: t.shown.lon - nLon, at: Date.now() };
       }
       t.fix = fix;
       t.meta = ac;
@@ -907,6 +913,29 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (milCandidate && milSeeded) maybeMilZoom(milCandidate);
     milSeeded = true; // aircraft in the startup snapshot were already there
   };
+
+  // Coming back after the tab/display was hidden: rAF was frozen the whole
+  // time, so drawn positions are stale. Snap every target to current truth
+  // (no catch-up slides), drop ones the feed has surely lost (the threshold
+  // scales with bandwidth mode, like the stall alarm), and fade the overlay
+  // back in so the rearranged sky doesn't teleport in front of the viewer.
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (!hiddenAt || Date.now() - hiddenAt < 5000) return;
+    const staleLimit = (STALE_MS[bwMode] || STALE_MS.high)[1];
+    for (const [hex, t] of targets) {
+      t.corr = null;
+      if (Date.now() - t.lastSeen > staleLimit) targets.delete(hex);
+    }
+    if (!REDUCED_MOTION) {
+      canvas.style.transition = 'none';
+      canvas.style.opacity = '0';
+      void canvas.offsetWidth; // commit the hidden state before transitioning
+      canvas.style.transition = 'opacity 0.7s ease';
+      canvas.style.opacity = '1';
+    }
+  });
 
   // ------------------------------------------------------------------ icons
   // Jet/airliner: swept wings
@@ -1357,13 +1386,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         const base = mil ? COLORS.mil : police ? COLORS.police : overhead ? COLORS.amber : COLORS.trail;
         ctx.strokeStyle = base;
         ctx.lineWidth = 1.6;
-        let prev = null;
+        let prev = null, prevAt = 0;
         for (let i = 0; i <= t.trail.length; i++) {
           const p = i < t.trail.length
             ? t.trail[i]
             : { lat: t.shown.lat, lon: t.shown.lon, at: nowMs };
           const cp = map.latLngToContainerPoint([p.lat, p.lon]);
-          if (prev) {
+          // don't connect across a suspension gap (tab hidden / laptop asleep,
+          // no fixes recorded) — 90 s clears LOW mode's legit 45 s cadence
+          if (prev && p.at - prevAt < 90000) {
             const ageF = 1 - (nowMs - p.at) / TRAIL_FADE_MS;
             const a = Math.max(0, ageF) * 0.5;
             if (a > 0.02) {
@@ -1375,6 +1406,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
             }
           }
           prev = cp;
+          prevAt = p.at;
         }
         ctx.globalAlpha = 1;
       }
