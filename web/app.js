@@ -1046,47 +1046,51 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const MONO_BOLD = '700 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
   const TAG_FONT = '700 11px ui-monospace, "SF Mono", Menlo, monospace';
 
+  // Palette rules: a hue means the same thing in both themes (cyan=aircraft,
+  // gold=overhead, red=military, blue=police, green=climb). Dark uses vivid
+  // high-chroma inks against the near-black map; light uses deep saturated
+  // inks (not pastels) that hold 4.5:1+ contrast on the cream basemap.
   const THEMES = {
     dark: {
-      icon: '#8fd4ff', trail: '#57b8ff', leader: '#3d5a74',
-      blockBg: 'rgba(12,24,38,0.92)', blockEdge: '#2c465e',
-      amber: '#ffd166', amberEdge: '#c9962e', amberBg: 'rgba(26,20,8,0.94)',
-      mil: '#ff6a55', milEdge: '#c94a38', milBg: 'rgba(30,10,8,0.93)',
-      dim: '#6c7f93',
-      ring: '#2b5c52', ringText: '#3f7a6e', home: '#e8f0f7',
-      airport: '#6f8aa5',
-      textNormal: ['#7fd4ff', '#d6e6f5', '#f0c674', '#93a7bc'],
-      textOverhead: ['#ffd166', '#f3e3bd', '#f0c674', '#bfae87'],
-      textMil: ['#ff9c8c', '#f3d6d0', '#f0b3a6', '#c09a92'],
+      icon: '#38bdff', trail: '#2f96e6', leader: '#48708f',
+      blockBg: 'rgba(12,24,38,0.92)', blockEdge: '#38587a',
+      amber: '#ffbe2e', amberEdge: '#d99b17', amberBg: 'rgba(26,20,8,0.94)',
+      mil: '#ff4b33', milEdge: '#d63b26', milBg: 'rgba(30,10,8,0.93)',
+      dim: '#77879a',
+      ring: '#2e7a63', ringText: '#53a184', home: '#e8f0f7',
+      airport: '#84a9cc',
+      textNormal: ['#4cc7ff', '#eaf4fd', '#ffc95e', '#a9bed2'],
+      textOverhead: ['#ffbe2e', '#f9ecca', '#ffd166', '#cfb87e'],
+      textMil: ['#ff7d66', '#fadfd9', '#ffb09e', '#cfa094'],
       tagText: '#140f04',
       chartMuted: '#5a6c7e',
-      chartLow: '#2a5f83', chartHigh: '#7fd4ff', chartPeak: '#ffd166',
-      vsUp: '#35d07f', vsDown: '#ff6a55', vsFlat: '#8092a4',
-      police: '#5d8bff', policeEdge: '#3f6ae0', policeBg: 'rgba(10,14,34,0.93)',
+      chartLow: '#2e6f9c', chartHigh: '#38bdff', chartPeak: '#ffbe2e',
+      vsUp: '#22df82', vsDown: '#ff5540', vsFlat: '#8b9cae',
+      police: '#4d82ff', policeEdge: '#3a63e8', policeBg: 'rgba(10,14,34,0.93)',
       policeFlash: '#cfe0ff',
       policeWhite: '#eef4ff', // stripe partner for the police livery
-      textPolice: ['#9db8ff', '#dbe4ff', '#b9c8f5', '#8fa0d8'],
+      textPolice: ['#93b1ff', '#e4ebff', '#b9c8f5', '#96a7e4'],
       hiMix: 0.55, // how far the selected-block border lightens toward white
     },
     light: {
-      icon: '#3a7ca5', trail: '#6aa5c8', leader: '#a3a08c',
-      blockBg: 'rgba(253,250,243,0.94)', blockEdge: '#c9bda4',
-      amber: '#cf8a12', amberEdge: '#d9a032', amberBg: 'rgba(253,246,227,0.96)',
-      mil: '#c4675c', milEdge: '#b8564a', milBg: 'rgba(250,235,231,0.96)',
-      dim: '#a3a89e',
-      ring: '#5e9c88', ringText: '#4a8270', home: '#34435a',
-      airport: '#5f758a',
-      textNormal: ['#2a6fae', '#46525c', '#a07818', '#6d7a85'],
-      textOverhead: ['#8a5c04', '#513f10', '#a07818', '#7d6a3a'],
-      textMil: ['#a5473c', '#5c2c26', '#96554a', '#8a6b64'],
+      icon: '#0668b3', trail: '#2f8ecb', leader: '#8b8875',
+      blockBg: 'rgba(253,250,243,0.94)', blockEdge: '#b3a481',
+      amber: '#935a00', amberEdge: '#b57b12', amberBg: 'rgba(253,246,227,0.96)',
+      mil: '#c92c1a', milEdge: '#b02718', milBg: 'rgba(250,235,231,0.96)',
+      dim: '#9aa39c',
+      ring: '#2f8a6b', ringText: '#257a5c', home: '#34435a',
+      airport: '#3f5d78',
+      textNormal: ['#0663a8', '#2b3640', '#8f6400', '#57646f'],
+      textOverhead: ['#8f5a00', '#3d3208', '#8f6400', '#6b5a2e'],
+      textMil: ['#b02718', '#4a201a', '#a03a2a', '#7c5850'],
       tagText: '#402f08',
       chartMuted: '#9aa1a8',
-      chartLow: '#a8cbe0', chartHigh: '#2a6fae', chartPeak: '#cf8a12',
-      vsUp: '#2e8a5c', vsDown: '#c0342a', vsFlat: '#8a94a0',
-      police: '#2c50c8', policeEdge: '#2c50c8', policeBg: 'rgba(233,238,252,0.96)',
+      chartLow: '#7db8dd', chartHigh: '#0668b3', chartPeak: '#935a00',
+      vsUp: '#0b7a45', vsDown: '#cc2717', vsFlat: '#7f8a95',
+      police: '#1f41cc', policeEdge: '#1f41cc', policeBg: 'rgba(233,238,252,0.96)',
       policeFlash: '#7fa0f0',
       policeWhite: '#ffffff', // stripe partner for the police livery
-      textPolice: ['#22409f', '#2c3a55', '#3f57a8', '#5a6a95'],
+      textPolice: ['#1a37a8', '#252f45', '#31479c', '#4b5b8c'],
       hiMix: 0.3, // lighter mix on the cream background so the border stays visible
     },
   };
@@ -1580,6 +1584,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   function setPaused(next) {
     if (paused === next) return;
     paused = next;
+    document.body.classList.toggle('paused', paused); // observable state, handy for debugging
     if (paused) {
       hiddenAt = Date.now();
       disconnectFeed();
@@ -1593,12 +1598,14 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
   // Overlay buttons in the shell map onto the controls this app already has.
   const SHELL_COMMANDS = {
-    home: () => homeToggle.click(),
+    home: () => map.panTo(HOME),          // recenter on home
+    setHome: () => homeToggle.click(),    // open the "set home" panel
     zoomIn: () => map.zoomIn(1),
     zoomOut: () => map.zoomOut(1),
     trails: (on) => setLayer('trails', on),
     blocks: (on) => setLayer('blocks', on),
     airports: (on) => setLayer('airports', on),
+    airspace: (on) => setLayer('airspace', on),
     list: () => listToggle.click(),
     settings: () => bwEl.click(),
   };

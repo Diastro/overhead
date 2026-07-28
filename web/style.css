@@ -6,13 +6,13 @@
 body {
   --stage-bg: #0a1420;
   --bar-bg: #05080d;
-  --bar-ink: #9fb4c8;
-  --bar-bright: #e8f0f7;
-  --muted: #4a5c70;
-  --accent: #57b8ff;
-  --ok: #35d07f;
-  --warn: #e0a63c;
-  --bad: #e05c4a;
+  --bar-ink: #a8bed2;
+  --bar-bright: #eef5fb;
+  --muted: #5b7086;
+  --accent: #38bdff;
+  --ok: #22df82;
+  --warn: #f0a81c;
+  --bad: #ff4b33;
   --panel-bg: rgba(5, 8, 13, 0.88);
   --panel-border: #31485f;
   --panel-line: #14202e;
@@ -21,19 +21,20 @@ body {
   --input-border: #2c465e;
   --btn-bg: #14283c;
   --stall-flash: #4a1410;
-  --police: #5d8bff;
+  --police: #4d82ff;
 }
 body.light {
-  /* faded pastels over warm ivory — pairs with the Voyager basemap */
+  /* deep saturated inks over warm ivory — pairs with the Voyager basemap
+     without going pastel */
   --stage-bg: #cfe0e8;
   --bar-bg: #fbf7ee;
-  --bar-ink: #6b7280;
-  --bar-bright: #2c3844;
-  --muted: #98948a;
-  --accent: #3a7ca5;
-  --ok: #4c9e6e;
-  --warn: #cf8a12;
-  --bad: #c4675c;
+  --bar-ink: #5a626d;
+  --bar-bright: #222d38;
+  --muted: #847f72;
+  --accent: #0668b3;
+  --ok: #0b7a45;
+  --warn: #935a00;
+  --bad: #c92c1a;
   --panel-bg: rgba(253, 250, 243, 0.92);
   --panel-border: #d8cdb8;
   --panel-line: #ece4d2;
@@ -42,7 +43,7 @@ body.light {
   --input-border: #c9bda4;
   --btn-bg: #ecdfc8;
   --stall-flash: #f3cdc7;
-  --police: #2c50c8;
+  --police: #1f41cc;
 }
 
 * { box-sizing: border-box; }
@@ -107,6 +108,17 @@ body { background: var(--stage-bg); }
   position: fixed;
   inset: 44px 0 0 0;
 }
+/* Embedded in the edge-loader kiosk shell (?embed=1): the shell draws the rail
+   and its own controls, so this app drops its header bar and gives the map the
+   full frame. Its own controls stay — the shell deliberately adds none. */
+body.embed #bar { display: none; }
+body.embed #stage { inset: 0; }
+/* the shell's Settings/Split/Dim cluster occupies the bottom-left corner */
+body.embed #bw { bottom: 92px; }
+body.embed #bw-chart { bottom: 128px; }
+body.embed #list-panel { bottom: 92px; }
+/* no header bar to clear, so the side panels start at the top */
+body.embed #list-panel, body.embed #home-panel { top: 16px; }
 #map {
   position: absolute;
   inset: 0;
