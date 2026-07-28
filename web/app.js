@@ -773,6 +773,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // hex -> { fix, shown: {lat, lon, track}, trail: [[lat,lon],...], meta, lastSeen }
   const targets = new Map();
   let feedState = { ok: false, source: '…', lastOkAt: 0 };
+  let milSeeded = false; // first snapshot's military targets must not auto-zoom
 
   const es = new EventSource('/events');
   es.onmessage = (e) => {
@@ -844,7 +845,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     for (const [hex, t] of targets) {
       if (!seen.has(hex) && Date.now() - t.lastSeen > 15000) targets.delete(hex);
     }
-    if (milCandidate) maybeMilZoom(milCandidate);
+    if (milCandidate && milSeeded) maybeMilZoom(milCandidate);
+    milSeeded = true; // aircraft in the startup snapshot were already there
   };
 
   // ------------------------------------------------------------------ icons
