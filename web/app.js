@@ -1173,12 +1173,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         : police && overhead ? 'P O L I C E · O V E R H E A D' : police ? 'P O L I C E'
         : 'O V E R H E A D';
       if (cg || police) {
-        // white with a dark halo — readable over either stripe color
+        // solid dark pill under the label — a halo alone washes out on the
+        // light stripes
+        const tw = ctx.measureText(tag).width;
+        ctx.fillStyle = 'rgba(4,7,12,0.78)';
+        ctx.beginPath();
+        ctx.roundRect(bx + padX - 5, by + 3, tw + 10, 14, 7);
+        ctx.fill();
         ctx.fillStyle = '#f5f7fa';
-        ctx.shadowColor = 'rgba(0,0,0,0.75)';
-        ctx.shadowBlur = 3;
         ctx.fillText(tag, bx + padX, by + 10.5);
-        ctx.shadowBlur = 0;
       } else {
         ctx.fillStyle = COLORS.tagText;
         ctx.fillText(tag, bx + padX, by + 10.5);
