@@ -548,13 +548,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   let bwPrev = null;
   let bwHover = null; // hovered sample index or null
 
+  // Settings panel always starts closed — open state is not persisted
   bwEl.addEventListener('click', () => {
-    const open = bwChart.classList.toggle('open');
-    localStorage.setItem('overhead-panel-usage', open ? '1' : '0');
+    bwChart.classList.toggle('open');
     drawBwChart();
     drawBwBars();
   });
-  if (localStorage.getItem('overhead-panel-usage') === '1') bwChart.classList.add('open');
   bwCanvas.addEventListener('mousemove', (e) => {
     if (!bwHistory.length) return;
     const rect = bwCanvas.getBoundingClientRect();
