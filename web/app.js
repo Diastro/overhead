@@ -643,7 +643,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       while (bwMinutes.length > 31) bwMinutes.shift();
     }
     bwPrev = { bytes: feedBytes, at: now };
-    bwLabel.textContent = `USAGE DATA · ${fmtBytes(feedBytes)}${rate}`;
+    bwLabel.textContent = `⚙ SETTINGS · ${fmtBytes(feedBytes)}${rate}`;
 
     if (bwChart.classList.contains('open')) {
       const elapsed = payload.startedAt ? (now - payload.startedAt) / 1000 : null;
@@ -1290,7 +1290,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // for aircraft inside the overhead ring, ALL for every airborne one.
       // Ground aircraft never show a block on their own (click for 7 s), but
       // airborne-and-slow is a hovering helicopter, not a parked plane.
-      let showBlock = layers.blocks && !f.onGround && (dataMode === 'all' || overhead);
+      // Military targets always carry their block (any mode, even on ground)
+      let showBlock = layers.blocks && (mil || (!f.onGround && (dataMode === 'all' || overhead)));
       let blockAlpha = 1;
       if (!showBlock && t.detailUntil) {
         const left = t.detailUntil - nowMs;

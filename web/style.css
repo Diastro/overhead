@@ -84,7 +84,6 @@ body { background: var(--stage-bg); }
 #bar .brand { justify-self: start; }
 #bar .center { justify-self: center; }
 #bar .right { display: inline-flex; align-items: center; gap: 14px; justify-self: end; }
-#bar .feed { display: inline-flex; align-items: center; gap: 8px; }
 #theme-toggle {
   padding: 4px 10px;
   background: transparent;
@@ -379,6 +378,12 @@ body.light #map .leaflet-tile-pane { filter: none; }
   color: var(--bar-ink);
 }
 #bw-chart .hdr #bw-cur { color: var(--bar-bright); }
+#bw-chart .feed {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--bar-bright);
+}
 #bw-chart .hdr:not(:first-child) { margin-top: 6px; }
 #bw-stats {
   display: flex;
