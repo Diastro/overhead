@@ -654,7 +654,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const bwModeBtns = [...document.querySelectorAll('#bwmode-row .seg button')];
   const bwModeNote = document.getElementById('bwmode-note');
   const BW_NOTES = {
-    high: 'Full 50 mi area polled every 3 s',
+    high: 'Full 100 mi area polled every 3 s',
     medium: 'Inner 10 nm ~6 s · full sweep every 15 s (~70% less data)',
     low: 'Inner 10 nm ~12 s · full sweep every 45 s (~90% less data)',
   };
@@ -687,6 +687,20 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }
   }
   renderBwMode();
+
+  // UI density (macOS Settings style): COMFY default, COMPACT tightens all
+  // chrome — bar, panels, buttons, list rows. Canvas data blocks are content,
+  // not chrome, so they keep their size.
+  const densityBtns = [...document.querySelectorAll('#density-row .seg button')];
+  function applyDensity(mode) {
+    document.body.classList.toggle('compact', mode === 'compact');
+    densityBtns.forEach((b) => b.classList.toggle('active', b.dataset.density === mode));
+    localStorage.setItem('overhead-density', mode);
+    map.invalidateSize(); // the header height changed, so the stage did too
+    resize();
+  }
+  densityBtns.forEach((b) => b.addEventListener('click', () => applyDensity(b.dataset.density)));
+  applyDensity(localStorage.getItem('overhead-density') === 'compact' ? 'compact' : 'comfortable');
 
   function hexA(hex, a) {
     const n = parseInt(hex.slice(1), 16);
