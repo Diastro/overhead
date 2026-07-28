@@ -702,20 +702,6 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
   renderBwMode();
 
-  // UI density (macOS Settings style): COMFY default, COMPACT tightens all
-  // chrome — bar, panels, buttons, list rows. Canvas data blocks are content,
-  // not chrome, so they keep their size.
-  const densityBtns = [...document.querySelectorAll('#density-row .seg button')];
-  function applyDensity(mode) {
-    document.body.classList.toggle('compact', mode === 'compact');
-    densityBtns.forEach((b) => b.classList.toggle('active', b.dataset.density === mode));
-    localStorage.setItem('overhead-density', mode);
-    map.invalidateSize(); // the header height changed, so the stage did too
-    resize();
-  }
-  densityBtns.forEach((b) => b.addEventListener('click', () => applyDensity(b.dataset.density)));
-  applyDensity(localStorage.getItem('overhead-density') === 'compact' ? 'compact' : 'comfortable');
-
   function hexA(hex, a) {
     const n = parseInt(hex.slice(1), 16);
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
@@ -1083,9 +1069,38 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
 
   // ------------------------------------------------------------------ render
-  const MONO = '13px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
-  const MONO_BOLD = '700 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
-  const TAG_FONT = '700 11px ui-monospace, "SF Mono", Menlo, monospace';
+  // Density-aware canvas metrics: COMPACT shrinks the data blocks, tag bands,
+  // airport cards, and icons along with the DOM chrome. Assigned before first
+  // use via refreshDensityMetrics (never leave these to TDZ ordering).
+  let MONO, MONO_BOLD, TAG_FONT;
+  let BLOCK_PADX, BLOCK_LINE_H, BLOCK_PAD_TOP, TAG_H, ICON_K;
+  function refreshDensityMetrics(compact) {
+    const px = compact ? 11.5 : 13;
+    MONO = `${px}px ui-monospace, "SF Mono", Menlo, Consolas, monospace`;
+    MONO_BOLD = `700 ${px}px ui-monospace, "SF Mono", Menlo, Consolas, monospace`;
+    TAG_FONT = `700 ${compact ? 10 : 11}px ui-monospace, "SF Mono", Menlo, monospace`;
+    BLOCK_PADX = compact ? 9 : 12;
+    BLOCK_LINE_H = compact ? 16 : 19;
+    BLOCK_PAD_TOP = compact ? 6 : 8;
+    TAG_H = compact ? 17 : 20;
+    ICON_K = compact ? 0.88 : 1;
+    for (const t of targets.values()) t.bwKey = null; // fonts changed — remeasure blocks
+  }
+  refreshDensityMetrics(false);
+
+  // UI density (macOS Settings style): COMFY default, COMPACT tightens both
+  // the DOM chrome (body.compact CSS) and the canvas content above.
+  const densityBtns = [...document.querySelectorAll('#density-row .seg button')];
+  function applyDensity(mode) {
+    document.body.classList.toggle('compact', mode === 'compact');
+    refreshDensityMetrics(mode === 'compact');
+    densityBtns.forEach((b) => b.classList.toggle('active', b.dataset.density === mode));
+    localStorage.setItem('overhead-density', mode);
+    map.invalidateSize(); // the header height changed, so the stage did too
+    resize();
+  }
+  densityBtns.forEach((b) => b.addEventListener('click', () => applyDensity(b.dataset.density)));
+  applyDensity(localStorage.getItem('overhead-density') === 'compact' ? 'compact' : 'comfortable');
 
   // Palette rules: a hue means the same thing in both themes (cyan=aircraft,
   // gold=overhead, red=military, blue=police, green=climb). Dark uses vivid
@@ -1189,15 +1204,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       w = Math.max(w, ctx.measureText(text).width);
     }
     t.bwKey = key;
-    t.bwPx = w + 24; // padX * 2
+    t.bwPx = w + BLOCK_PADX * 2;
     return t.bwPx;
   }
 
   function drawBlock(x, y, side, lines, opts) {
     const { overhead, dimmed, mil, police, cg, highlight, alpha = 1 } = opts;
-    const padX = 12, lineH = 19, padTop = 8;
+    const padX = BLOCK_PADX, lineH = BLOCK_LINE_H, padTop = BLOCK_PAD_TOP;
     const tagged = overhead || mil || police;
-    const tagH = tagged ? 20 : 0;
+    const tagH = tagged ? TAG_H : 0;
     const tag = !tagged ? null
       : cg && overhead ? 'C G · O V E R H E A D' : cg ? 'C O A S T · G U A R D'
       : mil && overhead ? 'M I L · O V E R H E A D' : mil ? 'M I L I T A R Y'
@@ -1249,7 +1264,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         : police ? stripePattern('policeBand', COLORS.police, COLORS.policeWhite)
         : edge;
       ctx.beginPath();
-      ctx.roundRect(bx, by, w, 20, [3, 3, 0, 0]);
+      ctx.roundRect(bx, by, w, tagH, [3, 3, 0, 0]);
       ctx.fill();
       ctx.font = TAG_FONT;
       ctx.textBaseline = 'middle';
@@ -1259,13 +1274,13 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         const tw = ctx.measureText(tag).width;
         ctx.fillStyle = 'rgba(4,7,12,0.78)';
         ctx.beginPath();
-        ctx.roundRect(bx + padX - 5, by + 3, tw + 10, 14, 7);
+        ctx.roundRect(bx + padX - 5, by + 3, tw + 10, tagH - 6, (tagH - 6) / 2);
         ctx.fill();
         ctx.fillStyle = '#f5f7fa';
-        ctx.fillText(tag, bx + padX, by + 10.5);
+        ctx.fillText(tag, bx + padX, by + tagH / 2 + 0.5);
       } else {
         ctx.fillStyle = COLORS.tagText;
-        ctx.fillText(tag, bx + padX, by + 10.5);
+        ctx.fillText(tag, bx + padX, by + tagH / 2 + 0.5);
       }
       ty += tagH;
     }
@@ -1434,7 +1449,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       `${a.elev != null ? `ELEV ${Math.round(a.elev).toLocaleString()} FT` : 'ELEV —'} · ${distMi.toFixed(1)} MI FROM HOME`,
     ];
     ctx.font = MONO;
-    const padX = 12, lineH = 19, padTop = 8;
+    const padX = BLOCK_PADX, lineH = BLOCK_LINE_H, padTop = BLOCK_PAD_TOP;
     let w = 0;
     for (const s of lines) w = Math.max(w, ctx.measureText(s).width);
     w += padX * 2;
@@ -1560,6 +1575,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         : police ? (flashOn ? COLORS.mil : COLORS.police)
         : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
       ctx.rotate((t.shown.track * Math.PI) / 180);
+      if (ICON_K !== 1) ctx.scale(ICON_K, ICON_K);
       if (t.meta.heli) {
         drawHeli(ctx, iconColor, COLORS.iconHalo);
       } else {
