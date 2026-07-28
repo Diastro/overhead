@@ -108,6 +108,19 @@ function normalize(raw) {
     const callsign = (ac.flight || '').trim().toUpperCase() || null;
     const airline = callsign ? airlineFor(callsign) : null;
     const opRaw = (ac.ownOp || '').toUpperCase();
+    const heli = isHeli(ac);
+    // Coast Guard: named owner, or the CG/CGNR callsign USCG aircraft fly
+    // with (their ownOp is often blank in the community db)
+    const cg = opRaw.includes('COAST GUARD') || opRaw.includes('USCG') ||
+      /^CGNR|^CG ?\d{3,4}$/.test(callsign || '');
+    // Police: named law-enforcement operator, or a civic-owned helicopter —
+    // a city/county that owns a helicopter is running an air-support unit
+    // (e.g. "CITY OF OAKLAND" = Oakland PD) unless the name says otherwise
+    const civicOwner = /\b(CITY|COUNTY|BOROUGH|PARISH) OF\b/.test(opRaw) ||
+      /,\s*(CITY|COUNTY|BOROUGH|PARISH)\b/.test(opRaw);
+    const civicNonLE = /(FIRE|MEDIC|EMS|AMBULANCE|HEALTH|HOSPITAL|WATER|POWER|UTILIT|TRANSIT|AIRPORT|PORT OF|PUBLIC WORKS|PARKS|SCHOOL|UNIVERSITY)/.test(opRaw);
+    const police = !opRaw.includes('CIVIL AIR PATROL') &&
+      (POLICE_RE.test(opRaw) || (heli && civicOwner && !civicNonLE));
     out.push({
       hex: ac.hex,
       callsign,
@@ -126,12 +139,12 @@ function normalize(raw) {
       track: ac.track ?? null,
       vr: ac.baro_rate ?? ac.geom_rate ?? 0,
       category: ac.category || null,
-      heli: isHeli(ac),
+      heli,
       // dbFlags bit 1 = military per readsb db; ae-prefix hex = US military
       // ICAO block; Coast Guard is treated as military per display policy
-      mil: !!(ac.dbFlags & 1) || /^ae/i.test(ac.hex || '') || opRaw.includes('COAST GUARD'),
-      cg: opRaw.includes('COAST GUARD'), // striped icon; otherwise military treatment
-      police: POLICE_RE.test(opRaw) && !opRaw.includes('CIVIL AIR PATROL'),
+      mil: !!(ac.dbFlags & 1) || /^ae/i.test(ac.hex || '') || cg,
+      cg, // striped icon; otherwise military treatment
+      police,
       dst: ac.dst ?? null, // nm from home, computed by the API
       seenPos: ac.seen_pos ?? null,
     });

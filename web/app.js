@@ -254,7 +254,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }
   }, 120000);
 
-  // Click/tap an aircraft to show its data block for a few seconds
+  // Click/tap an aircraft to show its data block for a few seconds. On a
+  // touch display there is no hover, so a tap that misses every aircraft
+  // falls through to the airport markers and shows their info card instead.
+  let airportTap = null; // { a, until }
   map.on('click', (e) => {
     let best = null;
     let bestD = 30; // px hit radius
@@ -263,7 +266,18 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const d = Math.hypot(p.x - e.containerPoint.x, p.y - e.containerPoint.y);
       if (d < bestD) { bestD = d; best = t; }
     }
-    if (best) best.detailUntil = Date.now() + DETAIL_MS;
+    if (best) { best.detailUntil = Date.now() + DETAIL_MS; return; }
+    airportTap = null;
+    if (layers.airports) {
+      const showSmall = currentViewMiles <= 20;
+      let aD = 24;
+      for (const a of airports) {
+        if (a.type === 'small_airport' && !showSmall) continue;
+        const p = map.latLngToContainerPoint([a.lat, a.lon]);
+        const d = Math.hypot(p.x - e.containerPoint.x, p.y - e.containerPoint.y);
+        if (d < aD) { aD = d; airportTap = { a, until: Date.now() + DETAIL_MS }; }
+      }
+    }
   });
 
   // Hovering on/near an aircraft shows its block; it hides on hover-away
@@ -1494,7 +1508,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       }
     }
     for (const args of blockQueue) drawBlock(...args);
-    if (hoveredAirport && layers.airports) drawAirportTip(hoveredAirport);
+    if (layers.airports) {
+      if (airportTap && airportTap.until < Date.now()) airportTap = null;
+      const tipAirport = hoveredAirport || (airportTap && airportTap.a);
+      if (tipAirport) drawAirportTip(tipAirport);
+    }
 
     updateBar(overheadCount);
     requestAnimationFrame(frame);

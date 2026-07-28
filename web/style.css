@@ -457,3 +457,20 @@ body.light #map .leaflet-tile-pane { filter: none; }
   font-size: 10px !important;
 }
 .leaflet-control-attribution a { color: var(--bar-ink) !important; }
+
+/* Touch displays (the Xeneon Edge wall panel): hover doesn't exist and a
+   finger is wider than a cursor. Grow tap targets vertically — the corner
+   toggles sit at hardcoded left offsets, so widening them would overlap. */
+@media (pointer: coarse) {
+  #list-toggle, #home-toggle, #data-toggle, #layers-toggle { padding: 13px 14px; }
+  #theme-toggle { padding: 8px 12px; }
+  #layers-panel label, #list-ground { padding: 12px 16px; }
+  #layers-panel input, #list-ground input { transform: scale(1.35); }
+  #ac-list li { padding: 12px 14px; }
+  #bw { padding: 12px 14px; }
+  #range-ctl { padding: 14px 16px; }
+  #range-ctl input[type='range'] { height: 32px; }
+  #bwmode-row .seg button { padding: 10px 12px; }
+  #home-set { padding: 11px 18px; }
+  #home-input { padding: 11px 10px; }
+}
