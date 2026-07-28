@@ -81,6 +81,7 @@ function modelFor(ac) {
 const HELI_TYPES = new Set([
   'R22', 'R44', 'R66', 'B06', 'B47G', 'B105', 'B212', 'B407', 'B412', 'B429',
   'B430', 'B505', 'S61', 'S64', 'S76', 'S92', 'H46', 'H47', 'H53', 'H60',
+  'H64', 'AH1', 'H500', // ICAO designators: Apache, Cobra, MD 500
   'UH1', 'AH64', 'EC20', 'EC25', 'EC30', 'EC35', 'EC45', 'EC55', 'EC75',
   'H125', 'H130', 'H135', 'H145', 'H155', 'H160', 'H175', 'AS32', 'AS3B',
   'AS50', 'AS55', 'AS65', 'A109', 'A119', 'A139', 'A149', 'A169', 'A189',
