@@ -1,52 +1,48 @@
 # Overhead — wall-mounted flight tracker
 
-Live aircraft over your house on a dark map, ATC-style: every target carries its
-data block (callsign · registration / model / owner or airline / altitude · speed)
-on a leader line as it moves. No API keys, no accounts.
+## Start
 
-Data: [airplanes.live](https://airplanes.live/api-guide/) community ADS-B feed
-(keyless, polled every 3 s), with adsb.lol as automatic failover.
-
-## Run (laptop or Pi)
-
-Requires Node 18+. No `npm install` needed — there are zero dependencies.
+Requires Node 18+. No dependencies, no API keys.
 
 ```sh
 npm start
 # open http://localhost:8080
 ```
 
-## Configure
+To keep it running detached from a terminal:
 
-Edit `config.json`:
+```sh
+nohup node server/index.js >> data/server.log 2>&1 &
+```
 
-| Key | Meaning |
-| --- | --- |
-| `home.lat` / `home.lon` | Center of the display — set to your house (placeholder ships with downtown Seattle) |
-| `radius_nm` | How far out to track aircraft (nautical miles) |
-| `rings_nm` | Range rings drawn around home |
-| `overhead_nm` | Aircraft closer than this get the amber OVERHEAD treatment |
-| `poll_seconds` | Feed poll interval (keep ≥ 2; the API allows 1 req/s) |
-| `show_ground_traffic` | Show aircraft on the ground at nearby airports (dimmed) |
+## Code organization
 
-To keep your real coordinates out of git, copy `config.json` to
-`config.local.json` (gitignored) and edit that — it overrides `config.json`.
+```
+config.json          Defaults (home, radius, rings, cadence). Copy overrides
+config.local.json    into config.local.json (gitignored) — the app also writes
+                     home/bandwidth changes here.
 
-Easier: click **⌂ HOME** in the app and type an address (geocoded via
-OpenStreetMap Nominatim, keyless) or a raw `lat,lon`. The map flies to the new
-location and the choice is saved to `config.local.json` automatically.
+server/
+  index.js           The whole service: polls community ADS-B feeds with
+                     failover, enriches targets (airline/heli/military/police),
+                     streams snapshots to clients over SSE (/events), serves
+                     the static app, and exposes small JSON endpoints
+                     (/config, /usage, /airports, /geocode, POST /home,
+                     POST /view, POST /bwmode). Persists usage counters and
+                     settings with atomic writes.
+  airlines.js        ICAO callsign prefix → airline name table.
 
-Other in-app controls: **✈ IN VIEW** lists aircraft in the visible area
-(hover a row to isolate that aircraft's data block); the **FEED DATA** readout
-(bottom left) opens a 60-second bandwidth sparkline on click; **☾/☀** in the
-header toggles dark/light theme (persisted per browser).
+web/
+  index.html         Page shell: header bar, map, canvas, control panels.
+  app.js             The display app: Leaflet basemap + one canvas overlay
+                     drawing everything (icons, trails, data blocks, rings,
+                     scale, airports). Dead-reckons aircraft between feed
+                     snapshots (turn-rate/accel projection with smooth fix
+                     correction). All UI wiring: sliders, panels, themes,
+                     hover/click details, usage charts.
+  style.css          Theme tokens (dark default, light override) + chrome.
+  vendor/            Vendored Leaflet (no CDN at runtime).
 
-## Layout
-
-- `server/` — Node service: static file server, `/events` SSE stream, feed poller
-- `web/` — the display app (Leaflet map + canvas ATC overlay)
-- `web/vendor/` — vendored Leaflet (no CDN dependency at runtime)
-
-## Pi kiosk deploy
-
-Phase 3 — systemd units and Chromium kiosk setup will land in `deploy/`.
+data/                Machine-written, gitignored: usage.json (bandwidth
+                     counters), airports.csv (OurAirports cache), server.log.
+```
