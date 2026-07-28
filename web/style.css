@@ -31,10 +31,10 @@ body.light {
   --bar-ink: #5a626d;
   --bar-bright: #222d38;
   --muted: #847f72;
-  --accent: #0668b3;
-  --ok: #0b7a45;
-  --warn: #b06800;
-  --bad: #c92c1a;
+  --accent: #0a7fd9;
+  --ok: #12a35c;
+  --warn: #e07f00;
+  --bad: #e03526;
   --panel-bg: rgba(253, 250, 243, 0.92);
   --panel-border: #d8cdb8;
   --panel-line: #ece4d2;
@@ -43,7 +43,7 @@ body.light {
   --input-border: #c9bda4;
   --btn-bg: #ecdfc8;
   --stall-flash: #f3cdc7;
-  --police: #1f41cc;
+  --police: #2f55e6;
 }
 
 * { box-sizing: border-box; }

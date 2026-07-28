@@ -1007,12 +1007,25 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }
   }
 
-  function drawHeli(ctx) {
+  function drawHeli(ctx, color, halo) {
+    // halo pass first — outlines body and rotors so bright fills pop
+    ctx.strokeStyle = halo;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 4.5, 7.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 3.6;
+    ctx.beginPath();
+    ctx.moveTo(-11, -9); ctx.lineTo(11, 9);
+    ctx.moveTo(11, -9); ctx.lineTo(-11, 9);
+    ctx.stroke();
+    ctx.fillStyle = color;
     ctx.beginPath();
     ctx.ellipse(0, 0, 4.5, 7.5, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillRect(-1.1, 6, 2.2, 9);
     ctx.fillRect(-4, 14, 8, 1.8);
+    ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(-11, -9); ctx.lineTo(11, 9);
@@ -1053,6 +1066,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const THEMES = {
     dark: {
       icon: '#38bdff', trail: '#2f96e6', leader: '#48708f',
+      iconHalo: 'rgba(4,10,18,0.85)',
       blockBg: 'rgba(12,24,38,0.92)', blockEdge: '#38587a',
       amber: '#ffbe2e', amberEdge: '#d99b17', amberBg: 'rgba(26,20,8,0.94)',
       mil: '#ff4b33', milEdge: '#d63b26', milBg: 'rgba(30,10,8,0.93)',
@@ -1073,21 +1087,22 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       hiMix: 0.55, // how far the selected-block border lightens toward white
     },
     light: {
-      icon: '#0668b3', trail: '#2f8ecb', leader: '#8b8875',
+      icon: '#0a7fd9', trail: '#3fa2e6', leader: '#8b8875',
+      iconHalo: 'rgba(255,255,255,0.92)',
       blockBg: 'rgba(253,250,243,0.94)', blockEdge: '#b3a481',
-      amber: '#c47300', amberEdge: '#b06800', amberBg: 'rgba(253,246,227,0.96)',
-      mil: '#c92c1a', milEdge: '#b02718', milBg: 'rgba(250,235,231,0.96)',
+      amber: '#f59500', amberEdge: '#e07f00', amberBg: 'rgba(253,246,227,0.96)',
+      mil: '#e03526', milEdge: '#c42d1f', milBg: 'rgba(250,235,231,0.96)',
       dim: '#9aa39c',
-      ring: '#2f8a6b', ringText: '#257a5c', home: '#34435a',
-      airport: '#3f5d78',
-      textNormal: ['#0663a8', '#2b3640', '#a86800', '#57646f'],
-      textOverhead: ['#a86800', '#4a3a0c', '#a86800', '#7c6633'],
-      textMil: ['#b02718', '#4a201a', '#a03a2a', '#7c5850'],
+      ring: '#1fa578', ringText: '#189a6e', home: '#34435a',
+      airport: '#4a6b8a',
+      textNormal: ['#0a72c4', '#2b3640', '#d97706', '#57646f'],
+      textOverhead: ['#d97706', '#4a3a0c', '#d97706', '#8a7440'],
+      textMil: ['#d0301f', '#4a201a', '#b8402e', '#8a5f56'],
       tagText: '#402f08',
       chartMuted: '#9aa1a8',
-      chartLow: '#7db8dd', chartHigh: '#0668b3', chartPeak: '#c47300',
-      vsUp: '#0b7a45', vsDown: '#cc2717', vsFlat: '#7f8a95',
-      police: '#1f41cc', policeEdge: '#1f41cc', policeBg: 'rgba(233,238,252,0.96)',
+      chartLow: '#7db8dd', chartHigh: '#0a7fd9', chartPeak: '#f59500',
+      vsUp: '#12a35c', vsDown: '#e03526', vsFlat: '#7f8a95',
+      police: '#2f55e6', policeEdge: '#2f55e6', policeBg: 'rgba(233,238,252,0.96)',
       policeFlash: '#7fa0f0',
       policeWhite: '#ffffff', // stripe partner for the police livery
       textPolice: ['#1a37a8', '#252f45', '#31479c', '#4b5b8c'],
@@ -1511,18 +1526,26 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       ctx.save();
       ctx.translate(pt.x, pt.y);
       const flashOn = !REDUCED_MOTION && Math.floor(nowMs / 400) % 2 === 1;
-      ctx.fillStyle = ctx.strokeStyle =
+      const iconColor =
         t.meta.cg ? (flashOn ? COLORS.mil : COLORS.amber)
         : mil ? COLORS.mil
         : police ? (flashOn ? COLORS.mil : COLORS.police)
         : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
       ctx.rotate((t.shown.track * Math.PI) / 180);
       if (t.meta.heli) {
-        drawHeli(ctx);
+        drawHeli(ctx, iconColor, COLORS.iconHalo);
       } else {
         const s = iconScaleFor(t.meta);
         ctx.scale(s, s);
-        ctx.fill(planeIconFor(t.meta));
+        const path = planeIconFor(t.meta);
+        // halo pass: bright fills stay visible on any basemap because the
+        // outline provides the separation, not a darkened pigment
+        ctx.strokeStyle = COLORS.iconHalo;
+        ctx.lineWidth = 2.6;
+        ctx.lineJoin = 'round';
+        ctx.stroke(path);
+        ctx.fillStyle = iconColor;
+        ctx.fill(path);
       }
       ctx.restore();
 
