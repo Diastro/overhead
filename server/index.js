@@ -138,9 +138,12 @@ function normalize(raw) {
       alt: onGround ? 0 : (typeof ac.alt_baro === 'number' ? ac.alt_baro : null),
       onGround,
       gs: ac.gs ?? null,
-      // track only — heading points the nose, not the motion (crab angle);
-      // extrapolating along heading drifts targets downwind
+      // track only for motion — heading points the nose, not the motion
+      // (crab angle); extrapolating along heading drifts targets downwind
       track: ac.track ?? null,
+      // nose heading: surface targets usually stop broadcasting track below
+      // taxi speed but keep sending true_heading — used for icon orientation
+      hdg: ac.true_heading ?? null,
       vr: ac.baro_rate ?? ac.geom_rate ?? 0,
       category: ac.category || null,
       heli,

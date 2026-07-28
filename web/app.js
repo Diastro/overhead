@@ -903,15 +903,18 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (ac.mil && !(existing && existing.meta && existing.meta.mil) && !milCandidate) {
         milCandidate = ac; // newly appeared military target
       }
+      const prevFix = existing && existing.fix;
       const fix = {
         lat: ac.lat, lon: ac.lon,
         gs: ac.gs || 0,
-        track: ac.track ?? 0,
+        // orientation: track over ground when broadcast; below taxi speed
+        // only the nose heading keeps coming, so fall back to it, then to
+        // the last known angle — never snap a taxiing plane back to north
+        track: ac.track ?? ac.hdg ?? (prevFix ? prevFix.track : 0),
         alt: ac.alt, vr: ac.vr, onGround: ac.onGround,
         at: Date.now() - (ac.seenPos ? ac.seenPos * 1000 : 0),
         turnRate: 0, accel: 0,
       };
-      const prevFix = existing && existing.fix;
       const samePos = prevFix && prevFix.lat === fix.lat && prevFix.lon === fix.lon;
       if (samePos) {
         // Rebroadcast of a cached fix (low-bw outer targets): keep the original
