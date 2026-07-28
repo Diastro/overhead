@@ -1465,15 +1465,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       }
 
       // icon — Coast Guard rescue orange; other military red; police flash
-      // blue (steady under prefers-reduced-motion). Stripes live on the data
-      // block's tag band, not the airframe.
+      // red/blue like a lightbar (steady blue under prefers-reduced-motion).
+      // Stripes live on the data block's tag band, not the airframe.
       ctx.save();
       ctx.translate(pt.x, pt.y);
       const flashOn = !REDUCED_MOTION && Math.floor(nowMs / 400) % 2 === 1;
       ctx.fillStyle = ctx.strokeStyle =
         t.meta.cg ? COLORS.cgIcon
         : mil ? COLORS.mil
-        : police ? (flashOn ? COLORS.policeFlash : COLORS.police)
+        : police ? (flashOn ? COLORS.mil : COLORS.police)
         : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
       ctx.rotate((t.shown.track * Math.PI) / 180);
       if (t.meta.heli) {
