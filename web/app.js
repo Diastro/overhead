@@ -20,19 +20,24 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // Home lives in the browser's storage; the server only holds it in memory.
   // On connect we adopt the stored home and re-assert it server-side.
   let HOME = [config.home.lat, config.home.lon];
+  // The committed placeholder (SEA airport). A device must never lock this in
+  // as "its" home — otherwise a screen opened right after a server restart
+  // adopts SEA forever and shows arrivals there as OVERHEAD.
+  const isPlaceholderHome = (la, lo) => Math.abs(la - 47.4502) < 1e-6 && Math.abs(lo - -122.3088) < 1e-6;
   try {
     const storedHome = JSON.parse(localStorage.getItem('overhead-home'));
-    if (storedHome && Number.isFinite(storedHome.lat) && Number.isFinite(storedHome.lon)) {
+    if (storedHome && Number.isFinite(storedHome.lat) && Number.isFinite(storedHome.lon) &&
+        !isPlaceholderHome(storedHome.lat, storedHome.lon)) {
       HOME = [storedHome.lat, storedHome.lon];
       fetch('/home', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lat: HOME[0], lon: HOME[1] }),
       }).catch(() => {});
-    } else {
-      // first run: adopt whatever the server has (legacy local config or default)
-      localStorage.setItem('overhead-home', JSON.stringify({ lat: HOME[0], lon: HOME[1] }));
     }
+    // No stored home: follow the server's current home (which tracks the last
+    // one any device asserted) without persisting it — only an explicit SET
+    // in the HOME panel writes this device's own copy.
   } catch { /* keep server default */ }
 
   // Shared constants — keep at the top: init code below runs immediately and
@@ -255,6 +260,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(lastDesiredView),
+      }).catch(() => {});
+    }
+    // Re-assert home too: a restarted server falls back to the placeholder
+    // until a client reminds it (it holds home in memory only).
+    if (!isPlaceholderHome(HOME[0], HOME[1])) {
+      fetch('/home', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: HOME[0], lon: HOME[1] }),
       }).catch(() => {});
     }
   }, 120000);

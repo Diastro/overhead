@@ -422,7 +422,7 @@ body.light #map .leaflet-tile-pane { filter: none; }
   color: var(--bar-ink);
 }
 #bw-stats b { color: var(--bar-bright); font-weight: 600; }
-#bwmode-row {
+#bwmode-row, #density-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -432,8 +432,8 @@ body.light #map .leaflet-tile-pane { filter: none; }
   letter-spacing: 0.1em;
   color: var(--bar-bright);
 }
-#bwmode-row .seg { display: flex; }
-#bwmode-row .seg button {
+#bwmode-row .seg, #density-row .seg { display: flex; }
+#bwmode-row .seg button, #density-row .seg button {
   padding: 5px 10px;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
@@ -444,9 +444,9 @@ body.light #map .leaflet-tile-pane { filter: none; }
   color: var(--bar-ink);
   cursor: pointer;
 }
-#bwmode-row .seg button:first-child { margin-left: 0; border-radius: 4px 0 0 4px; }
-#bwmode-row .seg button:last-child { border-radius: 0 4px 4px 0; }
-#bwmode-row .seg button.active {
+#bwmode-row .seg button:first-child, #density-row .seg button:first-child { margin-left: 0; border-radius: 4px 0 0 4px; }
+#bwmode-row .seg button:last-child, #density-row .seg button:last-child { border-radius: 0 4px 4px 0; }
+#bwmode-row .seg button.active, #density-row .seg button.active {
   background: var(--btn-bg);
   color: var(--bar-bright);
   border-color: var(--accent);
@@ -482,7 +482,35 @@ body.light #map .leaflet-tile-pane { filter: none; }
   #bw { padding: 12px 14px; }
   #range-ctl { padding: 14px 16px; }
   #range-ctl input[type='range'] { height: 32px; }
-  #bwmode-row .seg button { padding: 10px 12px; }
+  #bwmode-row .seg button, #density-row .seg button { padding: 10px 12px; }
   #home-set { padding: 11px 18px; }
   #home-input { padding: 11px 10px; }
 }
+
+/* COMPACT density (Settings > DENSITY): tighter chrome everywhere, in the
+   spirit of macOS System Settings. Placed last so it also wins over the
+   coarse-pointer bumps when the user explicitly chooses compact. */
+body.compact #bar { height: 34px; font-size: 11.5px; gap: 12px; padding: 0 14px; }
+body.compact #stage { inset: 34px 0 0 0; }
+body.compact.embed #stage { inset: 0; }
+body.compact #theme-toggle { padding: 2px 8px; font-size: 11.5px; }
+body.compact #range-ctl { padding: 6px 10px 8px; gap: 4px; font-size: 10px; top: 10px; }
+body.compact #range-ctl input[type='range'] { width: 210px; height: auto; }
+body.compact #list-toggle, body.compact #home-toggle,
+body.compact #data-toggle, body.compact #layers-toggle { padding: 6px 10px; font-size: 10px; top: 10px; }
+body.compact #layers-toggle { top: auto; bottom: 30px; }
+body.compact #list-panel, body.compact #home-panel { top: 44px; }
+body.compact.embed #list-panel, body.compact.embed #home-panel { top: 12px; }
+body.compact #list-panel { width: 272px; bottom: 36px; }
+body.compact #list-panel h3 { padding: 7px 11px; font-size: 10px; }
+body.compact #list-ground { padding: 5px 11px; font-size: 9px; }
+body.compact #ac-list li { padding: 5px 11px; font-size: 11px; line-height: 1.4; }
+body.compact #ac-list .l2 { font-size: 10px; }
+body.compact #home-panel { width: 272px; padding: 9px 11px; gap: 6px; }
+body.compact #home-input { padding: 6px 8px; font-size: 12px; }
+body.compact #home-set { padding: 5px 12px; font-size: 10px; }
+body.compact #layers-panel { padding: 8px 12px; gap: 5px; font-size: 9.5px; bottom: 62px; }
+body.compact #bw { font-size: 10px; bottom: 8px; }
+body.compact #bw-chart { padding: 8px 10px 6px; gap: 3px; bottom: 28px; }
+body.compact #bwmode-row, body.compact #density-row { margin-top: 5px; font-size: 9.5px; }
+body.compact #bwmode-row .seg button, body.compact #density-row .seg button { padding: 3px 8px; font-size: 9px; }
