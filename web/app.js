@@ -1036,7 +1036,6 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       police: '#5d8bff', policeEdge: '#3f6ae0', policeBg: 'rgba(10,14,34,0.93)',
       policeFlash: '#cfe0ff',
       policeWhite: '#eef4ff', // stripe partner for the police livery
-      cgIcon: '#ff9d5c', // USCG rescue orange
       textPolice: ['#9db8ff', '#dbe4ff', '#b9c8f5', '#8fa0d8'],
       hiMix: 0.55, // how far the selected-block border lightens toward white
     },
@@ -1058,7 +1057,6 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       police: '#2c50c8', policeEdge: '#2c50c8', policeBg: 'rgba(233,238,252,0.96)',
       policeFlash: '#7fa0f0',
       policeWhite: '#ffffff', // stripe partner for the police livery
-      cgIcon: '#c76b28', // USCG rescue orange
       textPolice: ['#22409f', '#2c3a55', '#3f57a8', '#5a6a95'],
       hiMix: 0.3, // lighter mix on the cream background so the border stays visible
     },
@@ -1159,8 +1157,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
     let ty = by + padTop;
     if (tagged) {
-      // Coast Guard band: red/blue diagonal stripes; police: blue/white
-      ctx.fillStyle = cg ? stripePattern('cgBand', COLORS.mil, COLORS.police)
+      // Coast Guard band: red/yellow diagonal stripes; police: blue/white
+      ctx.fillStyle = cg ? stripePattern('cgBand', COLORS.mil, COLORS.amber)
         : police ? stripePattern('policeBand', COLORS.police, COLORS.policeWhite)
         : edge;
       ctx.beginPath();
@@ -1467,14 +1465,14 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         ctx.globalAlpha = 1;
       }
 
-      // icon — Coast Guard rescue orange; other military red; police flash
-      // red/blue like a lightbar (steady blue under prefers-reduced-motion).
+      // icon — Coast Guard flashes red/yellow, police red/blue (steady
+      // yellow/blue under prefers-reduced-motion); other military solid red.
       // Stripes live on the data block's tag band, not the airframe.
       ctx.save();
       ctx.translate(pt.x, pt.y);
       const flashOn = !REDUCED_MOTION && Math.floor(nowMs / 400) % 2 === 1;
       ctx.fillStyle = ctx.strokeStyle =
-        t.meta.cg ? COLORS.cgIcon
+        t.meta.cg ? (flashOn ? COLORS.mil : COLORS.amber)
         : mil ? COLORS.mil
         : police ? (flashOn ? COLORS.mil : COLORS.police)
         : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
