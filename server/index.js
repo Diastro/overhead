@@ -455,6 +455,46 @@ async function ensureAirports() {
   return airportsLoading;
 }
 
+// ----------------------------------------------------------------- airspace
+// FAA Class Airspace open-data service (keyless, US National Airspace only).
+// Fetched once per area, cached on disk.
+const airspaceMem = new Map();
+
+async function fetchAirspace(lat, lon, radiusNm) {
+  const key = `${lat.toFixed(1)}_${lon.toFixed(1)}_${Math.round(radiusNm)}`;
+  if (airspaceMem.has(key)) return airspaceMem.get(key);
+  const file = path.join(ROOT, 'data', `airspace-${key}.json`);
+  if (fs.existsSync(file)) {
+    try {
+      const g = JSON.parse(fs.readFileSync(file, 'utf8'));
+      airspaceMem.set(key, g);
+      return g;
+    } catch { /* refetch */ }
+  }
+  const dLat = radiusNm / 60;
+  const dLon = radiusNm / (60 * Math.cos((lat * Math.PI) / 180));
+  const params = new URLSearchParams({
+    where: "CLASS IN ('B','C','D')",
+    geometry: `${lon - dLon},${lat - dLat},${lon + dLon},${lat + dLat}`,
+    geometryType: 'esriGeometryEnvelope',
+    inSR: '4326',
+    spatialRel: 'esriSpatialRelIntersects',
+    outFields: 'NAME,CLASS,LOWER_VAL,UPPER_VAL',
+    outSR: '4326',
+    f: 'geojson',
+  });
+  const res = await fetch(
+    'https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/Class_Airspace/FeatureServer/0/query?' + params,
+    { signal: AbortSignal.timeout(30000) }
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const g = await res.json();
+  writeJsonAtomic(file, g, false);
+  airspaceMem.set(key, g);
+  console.log(`[airspace] ${g.features?.length ?? 0} B/C/D polygons cached for ${key}`);
+  return g;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
@@ -596,6 +636,23 @@ const server = http.createServer(async (req, res) => {
       console.error(`[airports] ${err.message}`);
       res.writeHead(502, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'airport database unavailable' }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/airspace') {
+    const lat = Number(url.searchParams.get('lat'));
+    const lon = Number(url.searchParams.get('lon'));
+    const radius = Math.min(Number(url.searchParams.get('radius_nm')) || RADIUS_NM, 250);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) { res.writeHead(400).end(); return; }
+    try {
+      const g = await fetchAirspace(lat, lon, radius);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(g));
+    } catch (err) {
+      console.error(`[airspace] ${err.message}`);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'airspace data unavailable' }));
     }
     return;
   }

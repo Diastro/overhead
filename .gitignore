@@ -3,5 +3,6 @@ config.local.json
 data/*.sqlite
 data/usage.json
 data/airports.csv
+data/airspace-*.json
 data/server.log
 .DS_Store

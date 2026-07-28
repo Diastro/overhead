@@ -315,7 +315,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // Layer visibility (bottom-right ◧ LAYERS panel), persisted per browser
   const layersToggle = document.getElementById('layers-toggle');
   const layersPanel = document.getElementById('layers-panel');
-  const LAYER_DEFAULTS = { aircraft: true, trails: true, blocks: true, airports: false, rings: true, scale: true };
+  const LAYER_DEFAULTS = { aircraft: true, trails: true, blocks: true, airports: false, airspace: false, rings: true, scale: true };
   let layers = { ...LAYER_DEFAULTS };
   try {
     layers = { ...LAYER_DEFAULTS, ...JSON.parse(localStorage.getItem('overhead-layers') || '{}') };
@@ -330,6 +330,30 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     } catch { /* markers just stay absent */ }
   }
 
+  // Airspace outlines: FAA Class B/C/D polygons drawn in sectional-chart
+  // conventions — solid blue B, solid magenta C, dashed blue D. US-only data.
+  let airspaceLayer = null;
+  const AIRSPACE_STYLE = {
+    B: { color: '#4a8fd4', dash: null },
+    C: { color: '#b45fae', dash: null },
+    D: { color: '#4a8fd4', dash: '6 5' },
+  };
+  async function loadAirspace() {
+    try {
+      const r = await fetch(`/airspace?lat=${HOME[0]}&lon=${HOME[1]}&radius_nm=${config.radius_nm || 43}`);
+      if (!r.ok) return;
+      const g = await r.json();
+      if (airspaceLayer) map.removeLayer(airspaceLayer);
+      airspaceLayer = L.geoJSON(g, {
+        style: (f) => {
+          const s = AIRSPACE_STYLE[f.properties?.CLASS] || { color: '#7a8a99', dash: '3 5' };
+          return { color: s.color, weight: 1.3, dashArray: s.dash, fill: false, opacity: 0.75 };
+        },
+      });
+      if (layers.airspace) airspaceLayer.addTo(map);
+    } catch { /* outlines just stay absent */ }
+  }
+
   const layerBoxes = [...layersPanel.querySelectorAll('input')];
   layerBoxes.forEach((box) => {
     box.checked = !!layers[box.dataset.layer];
@@ -337,6 +361,14 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       layers[box.dataset.layer] = box.checked;
       localStorage.setItem('overhead-layers', JSON.stringify(layers));
       if (box.dataset.layer === 'airports' && box.checked && !airports.length) loadAirports();
+      if (box.dataset.layer === 'airspace') {
+        if (box.checked) {
+          if (airspaceLayer) airspaceLayer.addTo(map);
+          else loadAirspace();
+        } else if (airspaceLayer) {
+          map.removeLayer(airspaceLayer);
+        }
+      }
     });
   });
   layersToggle.addEventListener('click', () => {
@@ -349,6 +381,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     layersToggle.classList.add('open');
   }
   if (layers.airports) loadAirports();
+  if (layers.airspace) loadAirspace();
 
   // Collapsible list of aircraft currently inside the visible map area
   const listToggle = document.getElementById('list-toggle');
@@ -467,6 +500,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     targets.clear(); // old area's aircraft vanish; next poll brings the new sky
     airports = [];
     if (layers.airports) loadAirports();
+    if (airspaceLayer) {
+      map.removeLayer(airspaceLayer);
+      airspaceLayer = null;
+    }
+    if (layers.airspace) loadAirspace();
     rememberHome({ lat, lon, label });
     homeMsg.textContent = ('→ ' + label).slice(0, 36);
     map.flyTo(HOME, map.getZoom(), { duration: 2.2 }); // arcs out, then back in
