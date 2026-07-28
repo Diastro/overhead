@@ -1,4 +1,4 @@
-# Overhead — wall-mounted flight tracker
+# overhead — wall-mounted flight tracker
 
 ## Start
 
