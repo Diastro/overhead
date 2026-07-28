@@ -109,10 +109,14 @@ function normalize(raw) {
     const airline = callsign ? airlineFor(callsign) : null;
     const opRaw = (ac.ownOp || '').toUpperCase();
     const heli = isHeli(ac);
-    // Coast Guard: named owner, or the CG/CGNR callsign USCG aircraft fly
-    // with (their ownOp is often blank in the community db)
+    // Coast Guard: named owner, or a USCG callsign (their ownOp is often
+    // blank in the community db). Conventions seen live: CGNR####, CG####,
+    // and C#### — the last only counts on an already-military airframe so a
+    // civilian callsign can't trip it (e.g. C6065 = MH-60 Jayhawk 6065).
+    const milBase = !!(ac.dbFlags & 1) || /^ae/i.test(ac.hex || '');
     const cg = opRaw.includes('COAST GUARD') || opRaw.includes('USCG') ||
-      /^CGNR|^CG ?\d{3,4}$/.test(callsign || '');
+      /^CGNR|^CG ?\d{3,4}$/.test(callsign || '') ||
+      (milBase && /^C\d{4}$/.test(callsign || ''));
     // Police: named law-enforcement operator, or a civic-owned helicopter —
     // a city/county that owns a helicopter is running an air-support unit
     // (e.g. "CITY OF OAKLAND" = Oakland PD) unless the name says otherwise
@@ -142,7 +146,7 @@ function normalize(raw) {
       heli,
       // dbFlags bit 1 = military per readsb db; ae-prefix hex = US military
       // ICAO block; Coast Guard is treated as military per display policy
-      mil: !!(ac.dbFlags & 1) || /^ae/i.test(ac.hex || '') || cg,
+      mil: milBase || cg,
       cg, // striped icon; otherwise military treatment
       police,
       dst: ac.dst ?? null, // nm from home, computed by the API
