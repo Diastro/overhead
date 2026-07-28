@@ -130,6 +130,7 @@ function normalize(raw) {
       // dbFlags bit 1 = military per readsb db; ae-prefix hex = US military
       // ICAO block; Coast Guard is treated as military per display policy
       mil: !!(ac.dbFlags & 1) || /^ae/i.test(ac.hex || '') || opRaw.includes('COAST GUARD'),
+      cg: opRaw.includes('COAST GUARD'), // striped icon; otherwise military treatment
       police: POLICE_RE.test(opRaw) && !opRaw.includes('CIVIL AIR PATROL'),
       dst: ac.dst ?? null, // nm from home, computed by the API
       seenPos: ac.seen_pos ?? null,

@@ -978,6 +978,28 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     ctx.stroke();
   }
 
+  // Striped liveries: Coast Guard (red/blue), police (blue/white). Patterns
+  // are anchored to the current transform, so stripes rotate with the icon.
+  // Cache per theme (cleared in applyTheme).
+  let stripeCache = {};
+  function stripePattern(key, base, stripe) {
+    if (stripeCache[key]) return stripeCache[key];
+    const pc = document.createElement('canvas');
+    pc.width = pc.height = 8;
+    const g = pc.getContext('2d');
+    g.fillStyle = base;
+    g.fillRect(0, 0, 8, 8);
+    g.strokeStyle = stripe;
+    g.lineWidth = 2.8;
+    for (const o of [-8, 0, 8]) {
+      g.beginPath();
+      g.moveTo(o - 2, 10);
+      g.lineTo(o + 10, -2);
+      g.stroke();
+    }
+    return (stripeCache[key] = ctx.createPattern(pc, 'repeat'));
+  }
+
   // ------------------------------------------------------------------ render
   const MONO = '13px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
   const MONO_BOLD = '700 13px ui-monospace, "SF Mono", Menlo, Consolas, monospace';
@@ -1000,6 +1022,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       vsUp: '#35d07f', vsDown: '#ff6a55', vsFlat: '#8092a4',
       police: '#5d8bff', policeEdge: '#3f6ae0', policeBg: 'rgba(10,14,34,0.93)',
       policeFlash: '#cfe0ff',
+      policeWhite: '#eef4ff', // stripe partner for the police livery
       textPolice: ['#9db8ff', '#dbe4ff', '#b9c8f5', '#8fa0d8'],
       hiMix: 0.55, // how far the selected-block border lightens toward white
     },
@@ -1020,6 +1043,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       vsUp: '#2e8a5c', vsDown: '#c0342a', vsFlat: '#8a94a0',
       police: '#2c50c8', policeEdge: '#2c50c8', policeBg: 'rgba(233,238,252,0.96)',
       policeFlash: '#7fa0f0',
+      policeWhite: '#ffffff', // stripe partner for the police livery
       textPolice: ['#22409f', '#2c3a55', '#3f57a8', '#5a6a95'],
       hiMix: 0.3, // lighter mix on the cream background so the border stays visible
     },
@@ -1032,6 +1056,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     document.body.classList.toggle('light', name === 'light');
     setTiles(TILE_URLS[name] || TILE_URLS.dark);
     themeToggle.textContent = name === 'light' ? '☀' : '☾';
+    stripeCache = {}; // livery patterns bake theme colors — rebuild lazily
     localStorage.setItem('overhead-theme', name);
   }
   themeToggle.addEventListener('click', () => {
@@ -1411,14 +1436,19 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         ctx.globalAlpha = 1;
       }
 
-      // icon — military always red; police flash blue (steady blue under
-      // prefers-reduced-motion)
+      // icon — Coast Guard red/blue diagonal stripes; other military solid
+      // red; police blue/white diagonal stripes, "flashing" by swapping the
+      // stripe colors (steady under prefers-reduced-motion)
       ctx.save();
       ctx.translate(pt.x, pt.y);
-      const policeColor = REDUCED_MOTION || Math.floor(nowMs / 400) % 2 === 0
-        ? COLORS.police : COLORS.policeFlash;
+      const flashOn = !REDUCED_MOTION && Math.floor(nowMs / 400) % 2 === 1;
       ctx.fillStyle = ctx.strokeStyle =
-        mil ? COLORS.mil : police ? policeColor : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
+        t.meta.cg ? stripePattern('cg', COLORS.mil, COLORS.police)
+        : mil ? COLORS.mil
+        : police ? (flashOn
+            ? stripePattern('policeB', COLORS.policeWhite, COLORS.police)
+            : stripePattern('policeA', COLORS.police, COLORS.policeWhite))
+        : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
       ctx.rotate((t.shown.track * Math.PI) / 180);
       if (t.meta.heli) {
         drawHeli(ctx);
