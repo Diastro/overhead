@@ -6,6 +6,8 @@ attached to each target. Built for a Raspberry Pi driving an always-on
 display; runs anywhere with Node 18+. No npm dependencies, no API keys, no
 accounts.
 
+<img width="2067" height="1300" alt="Screenshot 2026-07-29 at 4 21 29 PM" src="https://github.com/user-attachments/assets/f552fdea-b98b-4509-94b8-166e1360e7a7" />
+
 ## Run
 
 ```sh
