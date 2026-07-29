@@ -1,54 +1,42 @@
-# overhead — wall-mounted flight tracker
+# Overhead
 
-## Start
+A wall-mounted flight tracker: live aircraft over your area on a dark
+ATC-style map, with data blocks (callsign, model, operator, altitude, speed)
+attached to each target. Built for a Raspberry Pi driving an always-on
+display; runs anywhere with Node 18+. No npm dependencies, no API keys, no
+accounts.
 
-Requires Node 18+. No dependencies, no API keys.
+## Run
 
 ```sh
 npm start
 # open http://localhost:8080
 ```
 
-To keep it running detached from a terminal:
+To keep it running after the terminal closes:
 
 ```sh
 nohup node server/index.js >> data/server.log 2>&1 &
 ```
 
-## Code organization
-
-```
-config.json          Defaults (home, radius, rings, cadence). Copy overrides
-config.local.json    into config.local.json (gitignored) — the app also writes
-                     home/bandwidth changes here.
-
-server/
-  index.js           The whole service: polls community ADS-B feeds with
-                     failover, enriches targets (airline/heli/military/police),
-                     streams snapshots to clients over SSE (/events), serves
-                     the static app, and exposes small JSON endpoints
-                     (/config, /usage, /airports, /geocode, POST /home,
-                     POST /view, POST /bwmode). Persists usage counters and
-                     settings with atomic writes.
-  airlines.js        ICAO callsign prefix → airline name table.
-
-web/
-  index.html         Page shell: header bar, map, canvas, control panels.
-  app.js             The display app: Leaflet basemap + one canvas overlay
-                     drawing everything (icons, trails, data blocks, rings,
-                     scale, airports). Dead-reckons aircraft between feed
-                     snapshots (turn-rate/accel projection with smooth fix
-                     correction). All UI wiring: sliders, panels, themes,
-                     hover/click details, usage charts.
-  style.css          Theme tokens (dark default, light override) + chrome.
-  vendor/            Vendored Leaflet (no CDN at runtime).
-
-data/                Machine-written, gitignored: usage.json (bandwidth
-                     counters), airports.csv (OurAirports cache), server.log.
-```
-
-Personal settings (home location, bandwidth mode, theme, layers) live in the
+Open the app and set your location with the **HOME** button. All personal
+settings (home, theme, bandwidth mode, layers, density) live in your
 browser's localStorage — nothing personal is written to disk or committed.
+
+## Layout
+
+```
+config.json     Generic defaults (radius, rings, cadence, ports).
+server/         Single-file service: polls community ADS-B feeds with
+                failover, enriches targets (airline / heli / military /
+                police / coast guard), streams snapshots over SSE, serves
+                the web app and small JSON endpoints.
+web/            The display: Leaflet basemap + one canvas overlay drawing
+                everything (icons, trails, data blocks, rings, airports,
+                airspace). Dead-reckons aircraft between feed snapshots for
+                smooth motion. Vendored Leaflet — no CDN at runtime.
+data/           Machine-written caches and counters (gitignored).
+```
 
 ## License & data credits
 
