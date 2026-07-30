@@ -38,6 +38,7 @@ function writeJsonAtomic(p, value, pretty) {
 }
 
 const config = loadConfig();
+let homeExplicitAt = 0; // wall-clock of the last explicit SET this lifetime
 
 // Feed sources, in failover order. Same /v2/point/{lat}/{lon}/{radius} shape.
 const SOURCES = [
@@ -115,7 +116,10 @@ function normalize(raw) {
     // civilian callsign can't trip it (e.g. C6065 = MH-60 Jayhawk 6065).
     const milBase = !!(ac.dbFlags & 1) || /^ae/i.test(ac.hex || '');
     const cg = opRaw.includes('COAST GUARD') || opRaw.includes('USCG') ||
-      /^CGNR|^CG ?\d{3,4}$/.test(callsign || '') ||
+      // CGNR needs trailing digits: Canadian regs broadcast as callsigns
+      // (C-GNRA -> "CGNRA") and must not match
+      /^CGNR ?\d{1,4}$/.test(callsign || '') ||
+      /^CG ?\d{3,4}$/.test(callsign || '') ||
       (milBase && /^C\d{4}$/.test(callsign || ''));
     // Police: named law-enforcement operator, or a civic-owned helicopter —
     // a city/county that owns a helicopter is running an air-support unit
@@ -152,6 +156,10 @@ function normalize(raw) {
       mil: milBase || cg,
       cg, // striped icon; otherwise military treatment
       police,
+      squawk: ac.squawk ?? null,
+      // 7500 hijack / 7600 radio failure / 7700 emergency — the most
+      // important traffic on the scope
+      emerg: ac.squawk === '7500' || ac.squawk === '7600' || ac.squawk === '7700',
       dst: ac.dst ?? null, // nm from home, computed by the API
       seenPos: ac.seen_pos ?? null,
     });
@@ -227,14 +235,15 @@ const clients = new Set();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// The display promises coverage up to 50 statute miles around home — clamp the
-// feed query to that (in nm) no matter what config says.
-const RADIUS_NM = Math.min(config.radius_nm, Math.round(50 * 0.868976));
+// The display promises coverage up to 100 statute miles around home — clamp
+// the feed query to that (in nm) no matter what config says. /config serves
+// this EFFECTIVE value so client coverage math can never diverge from it.
+const RADIUS_NM = Math.min(config.radius_nm, Math.round(100 * 0.868976));
 
 async function fetchRegion(src, lat, lon, radiusNm) {
   const res = await fetch(`${src.base}/${lat}/${lon}/${radiusNm}`, {
     signal: AbortSignal.timeout(8000),
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', 'User-Agent': 'overhead-tracker (github.com/Diastro/overhead)' },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const text = await res.text();
@@ -366,9 +375,41 @@ async function pollOnce(kind) {
 function broadcast(payload) {
   const frame = `data: ${JSON.stringify(payload)}\n\n`;
   for (const res of clients) {
-    // A socket that died without a clean close must never crash the kiosk.
-    try { res.write(frame); } catch { clients.delete(res); }
+    // A socket that died without a clean close must never crash the kiosk;
+    // a socket that stopped draining must not buffer frames forever either.
+    try {
+      if (res.writableLength > 1_000_000) { res.destroy(); clients.delete(res); continue; }
+      res.write(frame);
+    } catch { clients.delete(res); }
   }
+}
+
+// Read a small JSON body safely: hard size cap, connection-error tolerant.
+// Calls cb(value) on success; answers 400/413 itself on failure.
+function readJsonBody(req, res, cb) {
+  let body = '';
+  let done = false;
+  req.on('data', (c) => {
+    if (done) return;
+    body += c;
+    if (body.length > 4096) {
+      done = true;
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'body too large' }));
+      req.destroy();
+    }
+  });
+  req.on('error', () => { done = true; }); // reset mid-body must not crash the kiosk
+  req.on('end', () => {
+    if (done) return;
+    let value;
+    try { value = JSON.parse(body || 'null'); } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'invalid JSON' }));
+      return;
+    }
+    cb(value);
+  });
 }
 
 // ------------------------------------------------------------------- server
@@ -549,11 +590,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/bwmode' && req.method === 'POST') {
-    let body = '';
-    req.on('data', (c) => { body += c; });
-    req.on('end', () => {
+    readJsonBody(req, res, (v) => {
       try {
-        const { mode } = JSON.parse(body);
+        const { mode } = v || {};
         if (!BW_MODES.has(mode)) throw new Error('bad mode');
         bwMode = mode;
         console.log(`[feed] bandwidth mode: ${mode}`);
@@ -569,11 +608,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/view' && req.method === 'POST') {
-    let body = '';
-    req.on('data', (c) => { body += c; });
-    req.on('end', () => {
+    readJsonBody(req, res, (v) => {
       try {
-        const v = JSON.parse(body || 'null');
         viewAreaAt = Date.now();
         if (v === null) {
           viewArea = null;
@@ -596,22 +632,27 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/home' && req.method === 'POST') {
-    let body = '';
-    req.on('data', (c) => { body += c; });
-    req.on('end', () => {
+    readJsonBody(req, res, (v) => {
       try {
-        const { lat, lon } = JSON.parse(body);
+        const { lat, lon, explicit } = v || {};
         if (typeof lat !== 'number' || typeof lon !== 'number' ||
             Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('bad coords');
-        config.home.lat = lat;
-        config.home.lon = lon;
-        console.log('[home] moved (in-memory only)');
-        poll(); // refresh the sky around the new home right away
+        // Two devices with different stored homes must not duel: background
+        // re-asserts only land while no device has explicitly SET a home
+        // this server lifetime. An explicit SET always wins.
+        const same = config.home.lat === lat && config.home.lon === lon;
+        if (explicit) homeExplicitAt = Date.now();
+        if (!same && (explicit || !homeExplicitAt)) {
+          config.home.lat = lat;
+          config.home.lon = lon;
+          console.log(`[home] moved (${explicit ? 'explicit' : 'reassert'}, in-memory only)`);
+          poll(); // refresh the sky around the new home right away
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
+        res.end(JSON.stringify({ ok: true, applied: same || explicit || !homeExplicitAt }));
       } catch {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'expected JSON {lat, lon}' }));
+        res.end(JSON.stringify({ error: 'expected JSON {lat, lon, explicit?}' }));
       }
     });
     return;
@@ -679,7 +720,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/config') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(config));
+    res.end(JSON.stringify({ ...config, radius_nm: RADIUS_NM }));
     return;
   }
 

@@ -36,6 +36,7 @@
       <label><input type="checkbox" data-layer="airspace"> AIRSPACE</label>
       <label><input type="checkbox" data-layer="rings"> RANGE RINGS</label>
       <label><input type="checkbox" data-layer="scale"> NM SCALE</label>
+      <label><input type="checkbox" data-layer="milzoom"> MIL AUTO-ZOOM</label>
     </div>
     <div id="home-panel">
       <label for="home-input">SET HOME — ADDRESS OR LAT,LON</label>
@@ -51,6 +52,7 @@
       <label id="list-ground"><input type="checkbox" id="ground-toggle"> SHOW GROUND AIRCRAFT</label>
       <ul id="ac-list"></ul>
     </aside>
+    <div id="alert-banner"></div>
     <div id="wide-banner">VIEW WIDER THAN FEED COVERAGE — SHOWING AIRCRAFT WITHIN 100 MI OF CENTER</div>
     <div id="bw" title="Feed status, data usage, and bandwidth settings"><span id="bw-label">⚙ SETTINGS</span><span id="next-scan"></span></div>
     <div id="bw-chart">
@@ -73,6 +75,7 @@
         <div class="seg">
           <button data-density="comfortable" type="button">COMFY</button>
           <button data-density="compact" type="button">COMPACT</button>
+          <button data-density="wall" type="button">WALL</button>
         </div>
       </div>
       <div class="note" id="bwmode-note"></div>

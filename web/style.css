@@ -514,3 +514,47 @@ body.compact #bw { font-size: 10px; bottom: 8px; }
 body.compact #bw-chart { padding: 8px 10px 6px; gap: 3px; bottom: 28px; }
 body.compact #bwmode-row, body.compact #density-row { margin-top: 5px; font-size: 9.5px; }
 body.compact #bwmode-row .seg button, body.compact #density-row .seg button { padding: 3px 8px; font-size: 9px; }
+
+/* On-glass alert banner: stale feed, fatal errors, fly-by notes. Must stay
+   visible with every panel closed AND in embed mode (no header there). */
+#alert-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 900;
+  display: none;
+  max-width: 80%;
+  padding: 8px 18px;
+  background: var(--panel-bg);
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--warn);
+  text-align: center;
+}
+#alert-banner.show { display: block; }
+#alert-banner.bad { border-color: var(--bad); color: var(--bad); }
+
+#ac-list li.empty { color: var(--muted); cursor: default; font-size: 11px; letter-spacing: 0.08em; }
+
+/* WALL density: room-readable type for the across-the-room glance. */
+body.wall #bar { height: 56px; font-size: 17px; }
+body.wall #stage { inset: 56px 0 0 0; }
+body.wall.embed #stage { inset: 0; }
+body.wall #theme-toggle { padding: 6px 14px; font-size: 16px; }
+body.wall #range-ctl { font-size: 13px; gap: 8px; }
+body.wall #list-toggle, body.wall #home-toggle,
+body.wall #data-toggle, body.wall #layers-toggle { padding: 12px 16px; font-size: 13px; }
+body.wall #home-toggle { left: 152px; }
+body.wall #data-toggle { left: 262px; }
+body.wall #list-panel, body.wall #home-panel { top: 70px; width: 372px; }
+body.wall.embed #list-panel, body.wall.embed #home-panel { top: 16px; }
+body.wall #list-panel h3 { font-size: 13px; }
+body.wall #ac-list li { padding: 11px 16px; font-size: 15px; }
+body.wall #ac-list .l2 { font-size: 13px; }
+body.wall #layers-panel { font-size: 12.5px; gap: 9px; }
+body.wall #bw { font-size: 13px; }
+body.wall #alert-banner { font-size: 15px; padding: 11px 24px; }

@@ -9,6 +9,10 @@ function showFatal(msg) {
   if (el) el.textContent = 'APP ERROR: ' + msg;
   const dot = document.getElementById('feed-dot');
   if (dot) dot.className = 'dot bad';
+  // The settings panel is closed by default and embed mode hides the header —
+  // a kiosk must fail on its own glass, so fatal errors own the alert banner.
+  const alert = document.getElementById('alert-banner');
+  if (alert) { alert.textContent = 'APP ERROR: ' + msg; alert.classList.add('show', 'bad'); }
 }
 window.addEventListener('error', (e) => showFatal(e.message));
 window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message || String(e.reason)));
@@ -251,10 +255,19 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   map.on('zoomend moveend resize', onViewChanged);
   onViewChanged();
 
+  function postView(v) {
+    fetch('/view', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(v),
+    }).catch(() => {});
+  }
+
   // Re-assert an active view region every 2 min — the server expires regions
   // after 5 min so a vanished browser can't leave it double-polling forever.
   let lastDesiredView = null;
   setInterval(() => {
+    if (paused) return; // hidden embed: no keepalives at all
     if (lastDesiredView) {
       fetch('/view', {
         method: 'POST',
@@ -285,7 +298,14 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const d = Math.hypot(p.x - e.containerPoint.x, p.y - e.containerPoint.y);
       if (d < bestD) { bestD = d; best = t; }
     }
-    if (best) { best.detailUntil = Date.now() + DETAIL_MS; return; }
+    focusedHex = null; // touch has no reliable mouseleave — a map tap releases list isolation
+    if (best) {
+      // tap = show for 7 s; tap again while showing = pin; tap a pinned = unpin
+      if (best.pinned) { best.pinned = false; best.detailUntil = 0; }
+      else if ((best.detailUntil || 0) > Date.now()) best.pinned = true;
+      else best.detailUntil = Date.now() + DETAIL_MS;
+      return;
+    }
     airportTap = null;
     if (layers.airports) {
       const showSmall = currentViewMiles <= 20;
@@ -341,6 +361,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // flickering at coverage edge must not re-yank the display every minute
   function maybeMilZoom(ac) {
     const now = Date.now();
+    if (!layers.milzoom) return; // scripted camera moves are opt-out (layers panel)
     if (document.hidden) return; // rAF is frozen — flyTo would strand mid-flight
     if (milZoom.active || now - milZoom.lastAt < 60000) return;
     if ((milAlerted.get(ac.hex) || 0) > now - 1800000) return; // 30 min per airframe
@@ -351,17 +372,29 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const returnMiles = Number(rangeInput.value); // view to restore afterwards
     suppressRangeSync = true;
     const nm = 3 * NM_PER_MI;
+    alertNote = {
+      text: `${ac.emerg ? 'EMERGENCY SQUAWK' : 'MILITARY CONTACT'} · ${ac.callsign || ac.reg || ac.hex.toUpperCase()} — TAP MAP TO DISMISS`,
+      until: now + 15000,
+    };
     map.flyToBounds(L.latLngBounds([
       project(ac.lat, ac.lon, 0, nm), project(ac.lat, ac.lon, 180, nm),
       project(ac.lat, ac.lon, 90, nm), project(ac.lat, ac.lon, 270, nm),
     ]), { duration: 1.6 });
-    setTimeout(() => {
+    milZoom.timer = setTimeout(() => {
       rangeInput.value = returnMiles;
       applyRange(returnMiles); // back to the home view
       suppressRangeSync = false;
       milZoom.active = false;
     }, 15000);
   }
+  // Any user touch during the fly-by hands the camera back immediately.
+  map.getContainer().addEventListener('pointerdown', () => {
+    if (!milZoom.active) return;
+    clearTimeout(milZoom.timer);
+    milZoom.active = false;
+    suppressRangeSync = false;
+    alertNote = { text: '', until: 0 };
+  });
 
   // Data-block mode: OVERHEAD (default — full blocks only near home when
   // zoomed out) vs ALL (every airborne aircraft carries its block).
@@ -381,7 +414,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // Layer visibility (bottom-right ◧ LAYERS panel), persisted per browser
   const layersToggle = document.getElementById('layers-toggle');
   const layersPanel = document.getElementById('layers-panel');
-  const LAYER_DEFAULTS = { aircraft: true, trails: true, blocks: true, airports: false, airspace: false, rings: true, scale: true };
+  const LAYER_DEFAULTS = { aircraft: true, trails: true, blocks: true, airports: false, airspace: false, rings: true, scale: true, milzoom: true };
   let layers = { ...LAYER_DEFAULTS };
   try {
     layers = { ...LAYER_DEFAULTS, ...JSON.parse(localStorage.getItem('overhead-layers') || '{}') };
@@ -493,10 +526,6 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   });
 
   function renderList(force) {
-    if (!listPanel.classList.contains('open')) return;
-    // keep rows stable under the cursor — except when the ground toggle just
-    // changed (the pointer is necessarily inside the panel then)
-    if (listHovered && !force) return;
     const bounds = map.getBounds();
     const rows = [];
     for (const t of targets.values()) {
@@ -505,6 +534,18 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       rows.push([distNm(HOME[0], HOME[1], t.shown.lat, t.shown.lon), t]);
     }
     rows.sort((a, b) => a[0] - b[0]);
+    listToggle.textContent = `\u2708 IN VIEW \u00b7 ${rows.length}`; // live count even while closed
+    if (!listPanel.classList.contains('open')) return;
+    // keep rows stable under the cursor — except when the ground toggle just
+    // changed (the pointer is necessarily inside the panel then)
+    if (listHovered && !force) return;
+    if (!rows.length) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = feedState.ok ? 'NO AIRCRAFT IN VIEW \u2014 QUIET SKY' : 'NO DATA \u2014 FEED DOWN';
+      listEl.replaceChildren(li);
+      return;
+    }
     listEl.replaceChildren(...rows.map(([d, t]) => {
       const m = t.meta;
       const li = document.createElement('li');
@@ -547,6 +588,13 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }
   });
 
+  // First run on this device with no real home anywhere: open the panel and
+  // say why, instead of confidently rendering someone else's sky (SEA).
+  if (isPlaceholderHome(HOME[0], HOME[1])) {
+    homePanel.classList.add('open');
+    homeMsg.textContent = 'SET YOUR LOCATION TO BEGIN';
+  }
+
   // Last 3 valid home entries, persisted per browser
   function loadHomeHistory() {
     try { return JSON.parse(localStorage.getItem('overhead-home-history')) || []; }
@@ -579,7 +627,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const save = await fetch('/home', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lat, lon }),
+      body: JSON.stringify({ lat, lon, explicit: true }),
     });
     if (!save.ok) throw new Error('could not save home');
     HOME = [lat, lon];
@@ -673,6 +721,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     low: 'Inner 10 nm ~12 s · full sweep every 45 s (~90% less data)',
   };
   let bwMode = 'high';
+  let bwModePendingUntil = 0; // ignore stale broadcasts briefly after a local tap
   function renderBwMode() {
     bwModeBtns.forEach((b) => b.classList.toggle('active', b.dataset.mode === bwMode));
     bwModeNote.textContent = BW_NOTES[bwMode];
@@ -686,6 +735,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
   bwModeBtns.forEach((b) => b.addEventListener('click', () => {
     const prev = bwMode;
+    bwModePendingUntil = Date.now() + 5000;
     bwMode = b.dataset.mode;
     localStorage.setItem('overhead-bwmode', bwMode);
     renderBwMode();
@@ -723,8 +773,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (payload.nextScanAt) nextScan = payload.nextScanAt;
     const feedBytes = payload.feedBytes;
     if (feedBytes == null) return;
-    if (payload.bandwidthMode && payload.bandwidthMode !== bwMode) {
-      bwMode = payload.bandwidthMode; // server is authoritative (persisted setting)
+    if (payload.bandwidthMode && payload.bandwidthMode !== bwMode &&
+        Date.now() > bwModePendingUntil) { // a just-tapped mode must not snap back
+      bwMode = payload.bandwidthMode; // server is authoritative otherwise
       renderBwMode();
     }
     const now = Date.now();
@@ -900,17 +951,20 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     for (const ac of payload.aircraft) {
       seen.add(ac.hex);
       const existing = targets.get(ac.hex);
-      if (ac.mil && !(existing && existing.meta && existing.meta.mil) && !milCandidate) {
-        milCandidate = ac; // newly appeared military target
+      if ((ac.mil || ac.emerg) &&
+          !(existing && existing.meta && (existing.meta.mil || existing.meta.emerg)) && !milCandidate) {
+        milCandidate = ac; // newly appeared military or emergency target
       }
       const prevFix = existing && existing.fix;
       const fix = {
         lat: ac.lat, lon: ac.lon,
         gs: ac.gs || 0,
-        // orientation: track over ground when broadcast; below taxi speed
-        // only the nose heading keeps coming, so fall back to it, then to
-        // the last known angle — never snap a taxiing plane back to north
-        track: ac.track ?? ac.hdg ?? (prevFix ? prevFix.track : 0),
+        // motion uses real track only — heading points the nose, not the
+        // path (crab angle), so it must never feed the projection. hdg is a
+        // display-only fallback applied at icon-rotation time.
+        track: ac.track ?? (prevFix ? prevFix.track : ac.hdg ?? 0),
+        hasTrack: ac.track != null,
+        hdg: ac.hdg ?? null,
         alt: ac.alt, vr: ac.vr, onGround: ac.onGround,
         at: Date.now() - (ac.seenPos ? ac.seenPos * 1000 : 0),
         turnRate: 0, accel: 0,
@@ -926,7 +980,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         // Estimate turn rate and acceleration from successive fixes so the
         // projection follows arcs and speed changes, not straight lines.
         const dtFix = (fix.at - prevFix.at) / 1000;
-        if (dtFix > 1.5 && dtFix < 60) {
+        // turn rate only from two REAL tracks — a track->heading source flip
+        // reads the crab angle as a phantom turn
+        if (dtFix > 1.5 && dtFix < 60 && fix.hasTrack && prevFix.hasTrack) {
           fix.turnRate = Math.max(-6, Math.min(6, shortestArc(prevFix.track, fix.track) / dtFix));
           fix.accel = Math.max(-3, Math.min(3, (fix.gs - prevFix.gs) / dtFix));
         } else {
@@ -1051,7 +1107,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
 
   // Diagonal stripe fills for the data-block tag bands: Coast Guard
-  // (red/blue), police (blue/white). Cache per theme (cleared in applyTheme).
+  // (red/yellow), police (blue/white). Cache per theme (cleared in applyTheme).
   let stripeCache = {};
   function stripePattern(key, base, stripe) {
     if (stripeCache[key]) return stripeCache[key];
@@ -1077,33 +1133,38 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // use via refreshDensityMetrics (never leave these to TDZ ordering).
   let MONO, MONO_BOLD, TAG_FONT;
   let BLOCK_PADX, BLOCK_LINE_H, BLOCK_PAD_TOP, TAG_H, ICON_K;
-  function refreshDensityMetrics(compact) {
-    const px = compact ? 11.5 : 13;
+  function refreshDensityMetrics(mode) {
+    const wall = mode === 'wall', compact = mode === 'compact';
+    const px = compact ? 11.5 : wall ? 17 : 13;
     MONO = `${px}px ui-monospace, "SF Mono", Menlo, Consolas, monospace`;
     MONO_BOLD = `700 ${px}px ui-monospace, "SF Mono", Menlo, Consolas, monospace`;
-    TAG_FONT = `700 ${compact ? 10 : 11}px ui-monospace, "SF Mono", Menlo, monospace`;
-    BLOCK_PADX = compact ? 9 : 12;
-    BLOCK_LINE_H = compact ? 16 : 19;
-    BLOCK_PAD_TOP = compact ? 6 : 8;
-    TAG_H = compact ? 17 : 20;
-    ICON_K = compact ? 0.88 : 1;
+    TAG_FONT = `700 ${compact ? 10 : wall ? 13.5 : 11}px ui-monospace, "SF Mono", Menlo, monospace`;
+    BLOCK_PADX = compact ? 9 : wall ? 15 : 12;
+    BLOCK_LINE_H = compact ? 16 : wall ? 24 : 19;
+    BLOCK_PAD_TOP = compact ? 6 : wall ? 10 : 8;
+    TAG_H = compact ? 17 : wall ? 25 : 20;
+    ICON_K = compact ? 0.88 : wall ? 1.2 : 1;
     for (const t of targets.values()) t.bwKey = null; // fonts changed — remeasure blocks
   }
-  refreshDensityMetrics(false);
+  refreshDensityMetrics('comfortable');
 
   // UI density (macOS Settings style): COMFY default, COMPACT tightens both
   // the DOM chrome (body.compact CSS) and the canvas content above.
   const densityBtns = [...document.querySelectorAll('#density-row .seg button')];
   function applyDensity(mode) {
     document.body.classList.toggle('compact', mode === 'compact');
-    refreshDensityMetrics(mode === 'compact');
+    document.body.classList.toggle('wall', mode === 'wall');
+    refreshDensityMetrics(mode);
     densityBtns.forEach((b) => b.classList.toggle('active', b.dataset.density === mode));
     localStorage.setItem('overhead-density', mode);
     map.invalidateSize(); // the header height changed, so the stage did too
     resize();
   }
   densityBtns.forEach((b) => b.addEventListener('click', () => applyDensity(b.dataset.density)));
-  applyDensity(localStorage.getItem('overhead-density') === 'compact' ? 'compact' : 'comfortable');
+  {
+    const m = localStorage.getItem('overhead-density');
+    applyDensity(m === 'compact' || m === 'wall' ? m : 'comfortable');
+  }
 
   // Palette rules: a hue means the same thing in both themes (cyan=aircraft,
   // gold=overhead, red=military, blue=police, green=climb). Dark uses vivid
@@ -1212,11 +1273,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
 
   function drawBlock(x, y, side, lines, opts) {
-    const { overhead, dimmed, mil, police, cg, highlight, alpha = 1 } = opts;
+    const { overhead, dimmed, mil, police, cg, emerg, squawk, highlight, alpha = 1 } = opts;
     const padX = BLOCK_PADX, lineH = BLOCK_LINE_H, padTop = BLOCK_PAD_TOP;
-    const tagged = overhead || mil || police;
+    const tagged = overhead || mil || police || emerg;
     const tagH = tagged ? TAG_H : 0;
     const tag = !tagged ? null
+      : emerg ? `E M E R G E N C Y${squawk ? ' · ' + squawk : ''}`
       : cg && overhead ? 'C G · O V E R H E A D' : cg ? 'C O A S T · G U A R D'
       : mil && overhead ? 'M I L · O V E R H E A D' : mil ? 'M I L I T A R Y'
       : police && overhead ? 'P O L I C E · O V E R H E A D' : police ? 'P O L I C E'
@@ -1234,9 +1296,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const bx = side === 'right' ? x + 26 : x - 26 - w;
     const by = y - h / 2;
 
-    const edge = mil ? COLORS.milEdge : police ? COLORS.policeEdge
+    const edge = (mil || emerg) ? COLORS.milEdge : police ? COLORS.policeEdge
       : overhead ? COLORS.amberEdge : COLORS.blockEdge;
-    const bg = mil ? COLORS.milBg : police ? COLORS.policeBg
+    const bg = (mil || emerg) ? COLORS.milBg : police ? COLORS.policeBg
       : overhead ? COLORS.amberBg : COLORS.blockBg;
     // clicked or list-highlighted: lighter, heavier border (tag band keeps
     // its normal color so MIL/POLICE bands don't wash out)
@@ -1336,7 +1398,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       ctx.fillText(`${rNm} NM`, homePt.x, homePt.y - rPx - 5);
       ctx.textAlign = 'left';
     }
-    // outer limit of feed coverage: 50 mi around home
+    // outer limit of feed coverage: MAX_VIEW_MI (100 mi) around home
     {
       const edge = map.latLngToContainerPoint(project(HOME[0], HOME[1], 0, MAX_VIEW_MI * NM_PER_MI));
       const rPx = Math.hypot(edge.x - homePt.x, edge.y - homePt.y);
@@ -1485,6 +1547,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     ctx.textBaseline = 'alphabetic';
   }
 
+  const trailBuckets = [[], [], [], [], [], []]; // reused per aircraft per frame
   let lastFrame = performance.now();
   function frame(now) {
     const dtF = Math.min((now - lastFrame) / 1000, 0.25);
@@ -1518,7 +1581,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       }
       t.shown.lat = sLat;
       t.shown.lon = sLon;
-      const targetTrack = f.track + (f.turnRate || 0) * Math.min(age, PROJECT_CAP_S);
+      const targetTrack = f.hasTrack
+        ? f.track + (f.turnRate || 0) * Math.min(age, PROJECT_CAP_S)
+        : (f.hdg ?? f.track); // no track broadcast (taxi/idle): orient to the nose
       t.shown.track += shortestArc(t.shown.track, targetTrack) * (1 - Math.exp(-dtF * 3));
 
       const pt = map.latLngToContainerPoint([t.shown.lat, t.shown.lon]);
@@ -1541,6 +1606,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         const base = mil ? COLORS.mil : police ? COLORS.police : overhead ? COLORS.amber : COLORS.trail;
         ctx.strokeStyle = base;
         ctx.lineWidth = 1.6;
+        // Segments batch into 6 alpha buckets — one stroke() per bucket, not
+        // per segment; a Pi 4 cannot afford 16k strokes/frame in a busy sky
+        for (const b of trailBuckets) b.length = 0;
         let prev = null, prevAt = 0;
         for (let i = 0; i <= t.trail.length; i++) {
           const p = i < t.trail.length
@@ -1550,18 +1618,22 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
           // don't connect across a suspension gap (tab hidden / laptop asleep,
           // no fixes recorded) — 90 s clears LOW mode's legit 45 s cadence
           if (prev && p.at - prevAt < 90000) {
-            const ageF = 1 - (nowMs - p.at) / TRAIL_FADE_MS;
-            const a = Math.max(0, ageF) * 0.5;
-            if (a > 0.02) {
-              ctx.globalAlpha = a;
-              ctx.beginPath();
-              ctx.moveTo(prev.x, prev.y);
-              ctx.lineTo(cp.x, cp.y);
-              ctx.stroke();
-            }
+            const a = Math.max(0, 1 - (nowMs - p.at) / TRAIL_FADE_MS) * 0.5;
+            if (a > 0.02) trailBuckets[Math.min(5, (a * 12) | 0)].push(prev.x, prev.y, cp.x, cp.y);
           }
           prev = cp;
           prevAt = p.at;
+        }
+        for (let bi = 0; bi < 6; bi++) {
+          const seg = trailBuckets[bi];
+          if (!seg.length) continue;
+          ctx.globalAlpha = (bi + 0.5) / 12;
+          ctx.beginPath();
+          for (let j = 0; j < seg.length; j += 4) {
+            ctx.moveTo(seg[j], seg[j + 1]);
+            ctx.lineTo(seg[j + 2], seg[j + 3]);
+          }
+          ctx.stroke();
         }
         ctx.globalAlpha = 1;
       }
@@ -1571,9 +1643,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // Stripes live on the data block's tag band, not the airframe.
       ctx.save();
       ctx.translate(pt.x, pt.y);
-      const flashOn = !REDUCED_MOTION && Math.floor(nowMs / 400) % 2 === 1;
+      const flashOn = !REDUCED_MOTION && Math.floor(nowMs / 800) % 2 === 1;
       const iconColor =
-        t.meta.cg ? (flashOn ? COLORS.mil : COLORS.amber)
+        t.meta.emerg ? (flashOn ? COLORS.policeWhite : COLORS.mil) // 7500/7600/7700: red/white
+        : t.meta.cg ? (flashOn ? COLORS.mil : COLORS.amber)
         : mil ? COLORS.mil
         : police ? (flashOn ? COLORS.mil : COLORS.police)
         : dimmed ? COLORS.dim : overhead ? COLORS.amber : COLORS.icon;
@@ -1603,7 +1676,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // Military targets always carry their block (any mode, even on ground);
       // Coast Guard is the exception — it follows the normal display rules
       let showBlock = layers.blocks &&
-        ((mil && !t.meta.cg) || (!f.onGround && (dataMode === 'all' || overhead)));
+        (t.pinned || t.meta.emerg ||
+         (mil && !t.meta.cg) || (!f.onGround && (dataMode === 'all' || overhead)));
       let blockAlpha = 1;
       if (!showBlock && t.detailUntil) {
         const left = t.detailUntil - nowMs;
@@ -1626,9 +1700,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (showBlock) {
         const side = pt.x < canvas.clientWidth / 2 ? 'right' : 'left';
         const lines = blockLines(t);
-        const highlight = (t.detailUntil || 0) > nowMs || t.meta.hex === focusedHex;
+        const highlight = t.pinned || (t.detailUntil || 0) > nowMs || t.meta.hex === focusedHex;
         blockQueue.push([pt.x, pt.y, side, lines, {
-          overhead, dimmed, mil, police, cg: !!t.meta.cg, highlight,
+          overhead, dimmed, mil, police, cg: !!t.meta.cg, emerg: !!t.meta.emerg,
+          squawk: t.meta.squawk, highlight,
           alpha: blockAlpha, width: blockWidth(t, lines),
         }]);
       }
@@ -1641,10 +1716,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }
 
     updateBar(overheadCount);
-    if (!paused) requestAnimationFrame(frame);
+    rafId = paused ? null : requestAnimationFrame(frame);
   }
   let paused = false; // set by the kiosk shell below; declared before the loop starts
-  requestAnimationFrame(frame);
+  let rafId = requestAnimationFrame(frame);
 
   // ------------------------------------------------- kiosk shell (embed mode)
   // The edge-loader shell hides this app in a display:none iframe when another
@@ -1658,11 +1733,13 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (paused) {
       hiddenAt = Date.now();
       disconnectFeed();
+      if (lastDesiredView) postView(null); // release the region: no double-poll for a hidden iframe
       return;
     }
     connectFeed();
+    if (lastDesiredView) postView(lastDesiredView); // hand the panned region back
     lastFrame = performance.now(); // don't bill the pause to the first frame
-    requestAnimationFrame(frame);
+    if (rafId == null) rafId = requestAnimationFrame(frame); // never double the loop
     resumeFromHidden();
   }
 
@@ -1728,7 +1805,19 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     setText(el.feed, 'feed', stalled
       ? `FEED STALE ${Math.round(stale / 1000)}s`
       : `FEED: ${feedState.source.toUpperCase()}`);
+    // On-glass alert banner: stale feed and fly-by notes show even with every
+    // panel closed (and in embed mode, which hides the header bar entirely).
+    const note = cls === 'bad' ? `FEED STALE ${Math.round(stale / 1000)}s — SHOWING LAST KNOWN POSITIONS`
+      : (alertNote.until > Date.now() ? alertNote.text : '');
+    if (cached.alert !== note) {
+      cached.alert = note;
+      alertEl.textContent = note;
+      alertEl.classList.toggle('show', !!note);
+      alertEl.classList.toggle('bad', cls === 'bad');
+    }
   }
+  const alertEl = document.getElementById('alert-banner');
+  let alertNote = { text: '', until: 0 };
   setInterval(() => {
     el.clock.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
     if (nextScan) {
