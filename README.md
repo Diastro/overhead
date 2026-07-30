@@ -24,6 +24,21 @@ nohup node server/index.js >> data/server.log 2>&1 &
 Open the app and set your location with the **HOME** button. All personal
 settings (home, theme, bandwidth mode, layers, density) live in your
 browser's localStorage — nothing personal is written to disk or committed.
+Physical-install settings (coverage radius, rings, poll cadence, port) live
+in `config.json`; edit + restart for those.
+
+Deploying on a Raspberry Pi wall display: see [docs/pi.md](docs/pi.md).
+
+## Why not FlightRadar24 on a tablet?
+
+- No account, no subscription, no ads, no nag screens — ever
+- Community feeds are unfiltered: military and blocked aircraft that the
+  commercial trackers hide are on your scope (and trigger an auto-zoom
+  fly-by — toggle it in LAYERS)
+- Emergency squawks (7500/7600/7700) get the loudest treatment on screen
+- Bandwidth is metered and tunable (HIGH/MED/LOW) for LTE or rural links
+- It runs on your LAN and keeps working when the internet products change
+  their minds
 
 ## Layout
 
@@ -39,6 +54,14 @@ web/            The display: Leaflet basemap + one canvas overlay drawing
                 smooth motion. Vendored Leaflet — no CDN at runtime.
 data/           Machine-written caches and counters (gitignored).
 ```
+
+## Contributing
+
+Small project, deliberate constraints: zero npm dependencies, no build step,
+no API keys, wall-display-first. PRs that respect those are welcome (bug
+fixes, aircraft/operator classification, rendering performance). Things that
+won't be merged: frameworks/bundlers, accounts or cloud services, features
+that need paid APIs.
 
 ## License & data credits
 
