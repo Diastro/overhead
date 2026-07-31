@@ -228,6 +228,10 @@ let lastOuter = []; // aircraft beyond the inner ring, cached between full sweep
 let lastOuterAt = 0; // when that cache was fetched — rebroadcasts age seen_pos from this
 let tick = 0;
 let lastTickAt = Date.now();
+// When the last SSE client attached or detached. The upstream is only worth
+// polling while somebody can see the result — this stamp is what lets the
+// scheduler stop billing the WAN for an empty room.
+let lastClientAt = Date.now();
 const pollBaseMs = Math.max(2, config.poll_seconds) * 1000;
 const STARTED_AT = Date.now();
 const INNER_NM = config.low_bw_inner_nm || 10;
@@ -295,6 +299,12 @@ function scheduledPoll() {
     viewArea = null;
     console.log('[feed] view region expired');
   }
+  // Nobody watching → nothing fetched. This was measured at ~1.7 GB/day of
+  // upstream traffic spent painting frames for an empty client set. The 60 s
+  // grace covers a reloading kiosk, and /events triggers an immediate full
+  // sweep on attach, so a returning viewer never sees a blanked sky for more
+  // than one round trip.
+  if (clients.size === 0 && Date.now() - lastClientAt > 60000) return;
   if (bwMode === 'high') return poll('full');
   if (bwMode === 'medium') {
     if (tick % 5 === 0) return poll('full');
@@ -323,10 +333,15 @@ async function pollOnce(kind) {
       );
     } else {
       ac = await fetchRegion(src, config.home.lat, config.home.lon, RADIUS_NM);
-      if (viewArea) {
+      // Pin the region before yielding: a client that pans back home POSTs
+      // /view null, and that used to land during the sleep below, leaving the
+      // dereference to throw "Cannot read properties of null (reading 'lat')"
+      // and silently drop the extra region on every such poll.
+      const area = viewArea;
+      if (area) {
         await sleep(1100); // stay under the API's 1 req/s limit
         try {
-          const extra = await fetchRegion(src, viewArea.lat, viewArea.lon, viewArea.radius_nm);
+          const extra = await fetchRegion(src, area.lat, area.lon, area.radius_nm);
           const seen = new Set(ac.map((a) => a.hex));
           for (const a of extra) if (!seen.has(a.hex)) ac.push(a);
         } catch (err) {
@@ -516,6 +531,16 @@ async function ensureAirports() {
 // FAA Class Airspace open-data service (keyless, US National Airspace only).
 // Fetched once per area, cached on disk.
 const airspaceMem = new Map();
+const airspaceStr = new Map();   // key → serialized body; bounded, see /airspace
+
+// ArcGIS answers a throttled or malformed query with HTTP 200 and an
+// {"error":{...}} body, and an out-of-coverage area with a legitimately empty
+// FeatureCollection. Only the latter is worth keeping: caching an error body
+// used to poison the area permanently, so the airspace layer stayed dark
+// forever even after the rate limit cleared.
+function usableAirspace(g) {
+  return !!g && !g.error && g.type === 'FeatureCollection' && Array.isArray(g.features);
+}
 
 async function fetchAirspace(lat, lon, radiusNm) {
   const key = `${lat.toFixed(1)}_${lon.toFixed(1)}_${Math.round(radiusNm)}`;
@@ -524,8 +549,14 @@ async function fetchAirspace(lat, lon, radiusNm) {
   if (fs.existsSync(file)) {
     try {
       const g = JSON.parse(fs.readFileSync(file, 'utf8'));
-      airspaceMem.set(key, g);
-      return g;
+      if (usableAirspace(g)) {
+        airspaceMem.set(key, g);
+        return g;
+      }
+      // A cache file written by an older build (or a half-written one) that
+      // holds an error payload: drop it and refetch rather than serve it.
+      console.warn(`[airspace] discarding unusable cache for ${key}`);
+      fs.unlinkSync(file);
     } catch { /* refetch */ }
   }
   const dLat = radiusNm / 60;
@@ -546,9 +577,14 @@ async function fetchAirspace(lat, lon, radiusNm) {
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const g = await res.json();
+  if (!usableAirspace(g)) {
+    // Surface the upstream's own words — "API calls quota exceeded" is worth
+    // seeing on the glass, and a retry in a minute usually succeeds.
+    throw new Error(g?.error?.message || 'upstream returned no feature collection');
+  }
   writeJsonAtomic(file, g, false);
   airspaceMem.set(key, g);
-  console.log(`[airspace] ${g.features?.length ?? 0} B/C/D polygons cached for ${key}`);
+  console.log(`[airspace] ${g.features.length} B/C/D polygons cached for ${key}`);
   return g;
 }
 
@@ -620,7 +656,12 @@ const server = http.createServer(async (req, res) => {
               Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('bad view');
           viewArea = { lat, lon, radius_nm: Math.min(radius_nm, RADIUS_NM) };
         }
-        poll(); // pick up the new region right away
+        // Only a *changed* region warrants an immediate out-of-schedule fetch.
+        // Clients re-assert an identical region every 2 minutes as a keepalive,
+        // and each of those was buying a full extra upstream sweep.
+        const sig = viewArea ? `${viewArea.lat},${viewArea.lon},${viewArea.radius_nm}` : '';
+        if (sig !== (scheduledPoll.lastViewSig ?? '')) poll();
+        scheduledPoll.lastViewSig = sig;
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
       } catch {
@@ -666,9 +707,14 @@ const server = http.createServer(async (req, res) => {
     });
     res.write('retry: 3000\n\n');
     if (lastPayload) res.write(`data: ${JSON.stringify(lastPayload)}\n\n`);
+    // If the scheduler has been idling with no clients, the replayed payload
+    // above is stale — kick a full sweep so the sky is current within a poll.
+    const wasIdle = clients.size === 0 && Date.now() - lastClientAt > 60000;
     clients.add(res);
-    req.on('close', () => clients.delete(res));
-    res.on('error', () => clients.delete(res));
+    lastClientAt = Date.now();
+    if (wasIdle) poll('full');
+    req.on('close', () => { clients.delete(res); lastClientAt = Date.now(); });
+    res.on('error', () => { clients.delete(res); lastClientAt = Date.now(); });
     return;
   }
 
@@ -702,12 +748,24 @@ const server = http.createServer(async (req, res) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) { res.writeHead(400).end(); return; }
     try {
       const g = await fetchAirspace(lat, lon, radius);
+      // Serialize once per area, not per request: the LA cache file is 7.2 MB,
+      // and stringifying that on the event loop stalled every SSE broadcast
+      // behind it for the duration. Keyed the same way as fetchAirspace's memo.
+      const key = `${lat.toFixed(1)}_${lon.toFixed(1)}_${Math.round(radius)}`;
+      let body = airspaceStr.get(key);
+      if (!body) {
+        body = JSON.stringify(g);
+        if (airspaceStr.size >= 6) airspaceStr.delete(airspaceStr.keys().next().value);
+        airspaceStr.set(key, body);
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(g));
+      res.end(body);
     } catch (err) {
       console.error(`[airspace] ${err.message}`);
       res.writeHead(502, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'airspace data unavailable' }));
+      // Pass the reason through: the client puts it on the alert banner so a
+      // dark airspace layer is never silently dark.
+      res.end(JSON.stringify({ error: err.message || 'airspace data unavailable' }));
     }
     return;
   }
@@ -732,13 +790,31 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(403).end();
     return;
   }
-  fs.readFile(full, (err, data) => {
-    if (err) {
+  fs.stat(full, (serr, st) => {
+    if (serr) {
       res.writeHead(404, { 'Content-Type': 'text/plain' }).end('not found');
       return;
     }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream' });
-    res.end(data);
+    // no-cache means revalidate, not refetch — with a validator to revalidate
+    // against, a kiosk reload answers 304 and leaflet.js (147 KB) comes from
+    // browser cache instead of the SD card.
+    const lastMod = st.mtime.toUTCString();
+    if (req.headers['if-modified-since'] === lastMod) {
+      res.writeHead(304, { 'Cache-Control': 'no-cache', 'Last-Modified': lastMod }).end();
+      return;
+    }
+    fs.readFile(full, (err, data) => {
+      if (err) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' }).end('not found');
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': MIME[path.extname(full)] || 'application/octet-stream',
+        'Cache-Control': 'no-cache',
+        'Last-Modified': lastMod,
+      });
+      res.end(data);
+    });
   });
 });
 

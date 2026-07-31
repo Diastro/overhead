@@ -21,22 +21,30 @@
     <div id="map"></div>
     <canvas id="scope"></canvas>
     <div id="range-ctl">
-      <label for="range">VIEW <b id="range-val">15</b> MI</label>
-      <input type="range" id="range" min="1" max="50" step="1" value="15">
+      <label for="range">VIEW <b id="range-val">13</b> NM</label>
+      <input type="range" id="range" min="1" max="43" step="1" value="13">
     </div>
-    <button id="list-toggle" type="button">✈ IN VIEW</button>
-    <button id="home-toggle" type="button">⌂ HOME</button>
-    <button id="data-toggle" type="button" title="Show data blocks for all aircraft, or only overhead when zoomed out">▤ DATA: OVERHEAD</button>
+    <div id="stage-controls">
+      <button id="list-toggle" type="button">✈ IN VIEW</button>
+      <button id="home-toggle" type="button">⌂ HOME</button>
+      <button id="data-toggle" type="button" title="Show data blocks for all aircraft, or only overhead when zoomed out">▤ DATA: OVERHEAD</button>
+    </div>
     <button id="layers-toggle" type="button" title="Show/hide map layers">◧ LAYERS</button>
     <div id="layers-panel">
       <label><input type="checkbox" data-layer="aircraft"> AIRCRAFT</label>
       <label><input type="checkbox" data-layer="trails"> TRAILS</label>
       <label><input type="checkbox" data-layer="blocks"> DATA BLOCKS</label>
       <label><input type="checkbox" data-layer="airports"> AIRPORTS</label>
+      <label title="ICAO idents (KSEA, KBFI) as used on charts, or IATA codes (SEA, BFI) where a field has one"><input type="checkbox" data-layer="icao"> ICAO CODES</label>
       <label><input type="checkbox" data-layer="airspace"> AIRSPACE</label>
       <label><input type="checkbox" data-layer="rings"> RANGE RINGS</label>
       <label><input type="checkbox" data-layer="scale"> NM SCALE</label>
       <label><input type="checkbox" data-layer="milzoom"> MIL AUTO-ZOOM</label>
+      <div id="alt-legend">
+        <span class="t">ALTITUDE</span>
+        <div class="ramp"><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="scale"><span>GND</span><span>10</span><span>20</span><span>FL300+</span></div>
+      </div>
     </div>
     <div id="home-panel">
       <label for="home-input">SET HOME — ADDRESS OR LAT,LON</label>
@@ -53,7 +61,7 @@
       <ul id="ac-list"></ul>
     </aside>
     <div id="alert-banner"></div>
-    <div id="wide-banner">VIEW WIDER THAN FEED COVERAGE — SHOWING AIRCRAFT WITHIN 100 MI OF CENTER</div>
+    <div id="wide-banner">VIEW WIDER THAN FEED COVERAGE — SHOWING AIRCRAFT WITHIN 87 NM OF CENTER</div>
     <div id="bw" title="Feed status, data usage, and bandwidth settings"><span id="bw-label">⚙ SETTINGS</span><span id="next-scan"></span></div>
     <div id="bw-chart">
       <div class="hdr"><span>FEED</span><span class="feed"><span class="dot" id="feed-dot"></span> <span id="feed-name">CONNECTING…</span></span></div>

@@ -159,10 +159,17 @@ body.light #map .leaflet-tile-pane { filter: none; }
   cursor: pointer;
 }
 
-#list-toggle, #home-toggle, #data-toggle, #layers-toggle {
+/* One control bar, laid out by flow rather than three hand-tuned `left`
+   offsets that drifted apart as labels changed length. */
+#stage-controls {
   position: absolute;
   top: 14px;
+  left: 16px;
   z-index: 600;
+  display: flex;
+  gap: 8px;
+}
+#list-toggle, #home-toggle, #data-toggle, #layers-toggle {
   padding: 9px 14px;
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
@@ -172,21 +179,25 @@ body.light #map .leaflet-tile-pane { filter: none; }
   letter-spacing: 0.12em;
   color: var(--bar-ink);
   cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
 }
-#list-toggle { left: 16px; }
-#home-toggle { left: 132px; }
-#data-toggle { left: 230px; }
 #layers-toggle {
-  top: auto;
-  left: auto;
+  position: absolute;
   bottom: 34px;
   right: 16px;
+  z-index: 600;
 }
-#list-toggle:hover, #list-toggle.open, #home-toggle:hover,
-#data-toggle:hover, #data-toggle.open,
-#layers-toggle:hover, #layers-toggle.open {
+#list-toggle:hover, #home-toggle:hover, #data-toggle:hover, #layers-toggle:hover {
   color: var(--bar-bright);
   border-color: var(--input-border);
+}
+/* Open/active is a real state, so it gets a filled treatment rather than the
+   same subtle border as hover. */
+#list-toggle.open, #data-toggle.open, #layers-toggle.open, #home-toggle.open {
+  color: var(--bar-bright);
+  border-color: var(--accent);
+  background: var(--btn-bg);
 }
 
 #layers-panel {
@@ -196,8 +207,9 @@ body.light #map .leaflet-tile-pane { filter: none; }
   z-index: 650;
   display: none;
   flex-direction: column;
-  gap: 7px;
-  padding: 12px 16px;
+  gap: 0;
+  min-width: 186px;
+  padding: 6px 0;
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   border-radius: 6px;
@@ -207,14 +219,76 @@ body.light #map .leaflet-tile-pane { filter: none; }
   color: var(--bar-ink);
 }
 #layers-panel.open { display: flex; }
+/* Switches, not form checkboxes: the panel sits on an operational display,
+   so its controls should read as instrumentation. */
 #layers-panel label {
   display: flex;
+  /* the markup puts the input first; reverse so the name reads on the left
+     and the switch lines up in a column on the right */
+  flex-direction: row-reverse;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 7px 14px;
   cursor: pointer;
 }
-#layers-panel label:hover { color: var(--bar-bright); }
-#layers-panel input { accent-color: var(--accent); cursor: pointer; }
+#layers-panel label:hover { background: var(--hover-bg); color: var(--bar-bright); }
+#layers-panel input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 13px;
+  margin: 0;
+  border: 1px solid var(--input-border);
+  border-radius: 7px;
+  background: var(--input-bg);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+#layers-panel input::after {
+  content: '';
+  position: absolute;
+  top: 1.5px;
+  left: 1.5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+#layers-panel input:checked { border-color: var(--accent); }
+#layers-panel input:checked::after {
+  transform: translateX(11px);
+  background: var(--accent);
+}
+#layers-panel input:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+/* Altitude ramp legend — the target colors now encode height, so the key
+   for reading them belongs on the glass next to the layer switches. */
+#alt-legend {
+  margin-top: 4px;
+  padding: 9px 14px 3px;
+  border-top: 1px solid var(--panel-line);
+}
+#alt-legend .t {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+}
+#alt-legend .ramp { display: flex; gap: 2px; }
+#alt-legend .ramp i { flex: 1; height: 7px; border-radius: 1px; }
+#alt-legend .scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
 
 #list-panel {
   position: absolute;
@@ -477,7 +551,10 @@ body.light #map .leaflet-tile-pane { filter: none; }
   #list-toggle, #home-toggle, #data-toggle, #layers-toggle { padding: 13px 14px; }
   #theme-toggle { padding: 8px 12px; }
   #layers-panel label, #list-ground { padding: 12px 16px; }
-  #layers-panel input, #list-ground input { transform: scale(1.35); }
+  #list-ground input { transform: scale(1.35); }
+  #layers-panel input { width: 30px; height: 17px; border-radius: 9px; }
+  #layers-panel input::after { width: 11px; height: 11px; }
+  #layers-panel input:checked::after { transform: translateX(13px); }
   #ac-list li { padding: 12px 14px; }
   #bw { padding: 12px 14px; }
   #range-ctl { padding: 14px 16px; }
@@ -509,7 +586,9 @@ body.compact #ac-list .l2 { font-size: 10px; }
 body.compact #home-panel { width: 272px; padding: 9px 11px; gap: 6px; }
 body.compact #home-input { padding: 6px 8px; font-size: 12px; }
 body.compact #home-set { padding: 5px 12px; font-size: 10px; }
-body.compact #layers-panel { padding: 8px 12px; gap: 5px; font-size: 9.5px; bottom: 62px; }
+body.compact #layers-panel { padding: 4px 0; font-size: 9.5px; bottom: 62px; min-width: 168px; }
+body.compact #layers-panel label { padding: 5px 11px; }
+body.compact #alt-legend { padding: 7px 11px 2px; }
 body.compact #bw { font-size: 10px; bottom: 8px; }
 body.compact #bw-chart { padding: 8px 10px 6px; gap: 3px; bottom: 28px; }
 body.compact #bwmode-row, body.compact #density-row { margin-top: 5px; font-size: 9.5px; }
@@ -555,6 +634,8 @@ body.wall.embed #list-panel, body.wall.embed #home-panel { top: 16px; }
 body.wall #list-panel h3 { font-size: 13px; }
 body.wall #ac-list li { padding: 11px 16px; font-size: 15px; }
 body.wall #ac-list .l2 { font-size: 13px; }
-body.wall #layers-panel { font-size: 12.5px; gap: 9px; }
+body.wall #layers-panel { font-size: 12.5px; min-width: 224px; }
+body.wall #layers-panel label { padding: 9px 18px; }
+body.wall #alt-legend { padding: 11px 18px 4px; }
 body.wall #bw { font-size: 13px; }
 body.wall #alert-banner { font-size: 15px; padding: 11px 24px; }

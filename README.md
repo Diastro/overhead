@@ -21,6 +21,49 @@ To keep it running after the terminal closes:
 nohup node server/index.js >> data/server.log 2>&1 &
 ```
 
+## Stop / restart
+
+Overhead, watchlist and edge-loader all run the same `node server/index.js`,
+so `pkill -f "node server/index.js"` takes **all three** down. Always target
+one app at a time, using its supervisor.
+
+**On the Mac** (launchd job `local.overhead`, defined in
+`~/Library/LaunchAgents/local.overhead.plist`). The job sets `KeepAlive`, so
+`kill` is *not* a shutdown — launchd respawns it within `ThrottleInterval`
+(5s). Use `bootout` when you actually want it to stay down:
+
+```sh
+# restart only overhead
+launchctl kickstart -k gui/$(id -u)/local.overhead
+
+# shut down only overhead, and keep it down
+launchctl bootout gui/$(id -u)/local.overhead
+
+# start it again afterwards (bootstrap only loads the job — kickstart runs it)
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.overhead.plist
+launchctl kickstart gui/$(id -u)/local.overhead
+
+# confirm (PID in col 1, or '-' when stopped)
+launchctl list | grep local.overhead
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/config   # 200
+```
+
+**On the Pi** it's a systemd unit, already scoped to this app alone:
+
+```sh
+sudo systemctl restart overhead
+sudo systemctl stop overhead          # stays down; `disable` to survive reboot
+systemctl status overhead --no-pager
+```
+
+**Running it by hand** (no supervisor — bootout the launchd job first, or the
+two fight over port 8080):
+
+```sh
+nohup node server/index.js >> data/server.log 2>&1 &
+kill $(lsof -ti tcp:8080 -sTCP:LISTEN)     # targets only what holds 8080
+```
+
 Open the app and set your location with the **HOME** button. All personal
 settings (home, theme, bandwidth mode, layers, density) live in your
 browser's localStorage — nothing personal is written to disk or committed.
