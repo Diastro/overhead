@@ -52,6 +52,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // this app hides its own header and takes commands over postMessage.
   const EMBED = new URLSearchParams(location.search).get('embed') === '1';
   const TRAIL_FADE_MS = (config.trail_fade_seconds ?? 60) * 1000;
+  // Backstop for a followed aircraft's held trail (see the trail cap below).
+  // ~3 hours of fixes at the fastest cadence; a wall panel runs for weeks.
+  const TRAIL_MAX = 4000;
   const DETAIL_MS = (config.detail_click_seconds ?? 7) * 1000;
   const MAX_VIEW_NM = 87; // feed coverage limit, expressed in NM like the rest of the scope
   const OVERHEAD_MAX_FT = config.overhead_max_ft ?? 18000;
@@ -417,16 +420,30 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const best = targetAt(e.containerPoint.x, e.containerPoint.y, 30);
     focusedHex = null; // touch has no reliable mouseleave — a map tap releases list isolation
     if (best) {
-      // The tracked flight's pin is an invariant, not a toggle — a stray tap
-      // must not strip its data block while the reticle and follow continue.
-      if (tracked && best.meta.hex === tracked.hex) {
-        flashAlert(`⌖ TRACKING ${tracked.label} — HOLD IT OR ⌖ (TOP LEFT) TO RELEASE`, 4000);
-        return;
+      /* A tap toggles the data block, full stop. It used to be a three-state
+         walk — tap for 7 s, tap again to pin, tap a pinned one to clear — so
+         dismissing a block you had only just opened meant tapping twice or
+         waiting the timer out. Showing is now sticky (no timer to sit through)
+         and one tap takes it away again.
+
+         The tracked flight is included: following an aircraft and reading its
+         block are separate wants, and a tap here hides the block WITHOUT
+         releasing the track. detailHidden is what outranks the pin that
+         startTracking sets; it is cleared whenever tracking starts or stops so
+         a fresh follow always opens with its details up. */
+      // blockShown is what the renderer last actually drew, so this toggles
+      // against reality — including blocks the display rules put up on their
+      // own (MILITARY, OVERHEAD, DATA:ALL), which a pin-only test would miss.
+      const showing = best.blockShown || best.pinned || (best.detailUntil || 0) > Date.now();
+      if (showing) {
+        best.pinned = false;
+        best.detailUntil = 0;
+        best.detailHidden = true;
+      } else {
+        best.pinned = true;
+        best.detailUntil = 0;
+        best.detailHidden = false;
       }
-      // tap = show for 7 s; tap again while showing = pin; tap a pinned = unpin
-      if (best.pinned) { best.pinned = false; best.detailUntil = 0; }
-      else if ((best.detailUntil || 0) > Date.now()) best.pinned = true;
-      else best.detailUntil = Date.now() + DETAIL_MS;
       return;
     }
     airportTap = null;
@@ -490,6 +507,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     milZoom.lastAt = now;
     milAlerted.set(ac.hex, now);
     const returnMiles = Number(rangeInput.value); // view to restore afterwards
+    /* Where the camera actually was, not just how far out it was zoomed.
+       The restore below used to call applyRange, which recenters on HOME — so
+       a passing military contact would yank someone who had panned off to
+       another field all the way back home and leave them there. */
+    const returnCenter = map.getCenter();
+    const returnZoom = map.getZoom();
     suppressRangeSync = true;
     const nm = 3;
     alertNote = {
@@ -502,7 +525,14 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     ]), { duration: 1.6 });
     milZoom.timer = setTimeout(() => {
       rangeInput.value = returnMiles;
-      applyRange(returnMiles); // back to the home view
+      rangeVal.textContent = returnMiles;
+      if (tracked) {
+        // a follow started during the fly-by owns the camera: hand it the scale
+        // and let it centre itself, rather than flying back to a stale spot
+        applyRange(returnMiles);
+      } else {
+        map.flyTo(returnCenter, returnZoom, { duration: 1.2 });
+      }
       suppressRangeSync = false;
       milZoom.active = false;
     }, 15000);
@@ -1036,7 +1066,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     trackPeekUntil = 0;
     trackPanX = trackPanY = 0;
     trackStartAt = Date.now();
-    t.pinned = true; // the tracked flight always carries its data block
+    t.pinned = true; // the tracked flight opens with its data block up
+    t.detailHidden = false; // a new follow starts fresh, whatever the last one ended as
     findToggle.classList.add('tracking');
     closeFindPanel();
     flashAlert(`⌖ TRACKING ${label} — HOLD ⌖ (TOP LEFT) TO RELEASE`, 6000);
@@ -1046,7 +1077,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   function stopTracking(msg, ms = 5000) {
     if (!tracked) return;
     const t = targets.get(tracked.hex);
-    if (t) { t.pinned = false; t.detailUntil = 0; }
+    if (t) { t.pinned = false; t.detailUntil = 0; t.detailHidden = false; }
     tracked = null;
     findToggle.classList.remove('tracking');
     if (msg) flashAlert(msg, ms);
@@ -1517,7 +1548,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const last = t.trail[t.trail.length - 1];
       if (!last || distNm(last.lat, last.lon, ac.lat, ac.lon) > 0.05) {
         t.trail.push({ lat: ac.lat, lon: ac.lon, at: Date.now() });
-        if (t.trail.length > (config.trail_length || 40)) t.trail.shift();
+        // A followed aircraft keeps its whole track: the point of following one
+        // is watching where it has been, and the normal cap threw that away
+        // after trail_length fixes. TRAIL_MAX is only a memory backstop for a
+        // panel that runs for weeks — hours of following stay well under it.
+        const cap = tracked && tracked.hex === ac.hex ? TRAIL_MAX : (config.trail_length || 40);
+        while (t.trail.length > cap) t.trail.shift();
       }
     }
     // drop targets that left the feed (after a grace period for feed jitter)
@@ -2312,8 +2348,13 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const police = !!t.meta.police && !mil;
       const nowMs = Date.now();
 
-      // trail: purely time-based fade — fully gone at trail_fade_seconds (60 s)
-      while (t.trail.length && nowMs - t.trail[0].at > TRAIL_FADE_MS) t.trail.shift();
+      // trail: purely time-based fade — fully gone at trail_fade_seconds (60 s).
+      // The followed aircraft is exempt: its track holds until the follow ends,
+      // then the ordinary fade resumes and eats the backlog on later frames.
+      const holdTrail = !!tracked && tracked.hex === t.meta.hex;
+      if (!holdTrail) {
+        while (t.trail.length && nowMs - t.trail[0].at > TRAIL_FADE_MS) t.trail.shift();
+      }
       if (layers.trails && t.trail.length && !dimmed) {
         // trail carries the same altitude shade as its target, so a descending
         // arrival visibly cools off along its own track
@@ -2333,7 +2374,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
           // don't connect across a suspension gap (tab hidden / laptop asleep,
           // no fixes recorded) — 90 s clears LOW mode's legit 45 s cadence
           if (prev && p.at - prevAt < 90000) {
-            const a = Math.max(0, 1 - (nowMs - p.at) / TRAIL_FADE_MS) * 0.5;
+            /* A held track must stay VISIBLE for its whole length. Fading it by
+               age the normal way would keep every point and then draw the old
+               ones at alpha 0 — retained, invisible, and pointless. So the
+               followed aircraft grades from a legible floor up to full: you can
+               still tell new track from old, but none of it disappears. */
+            const age = nowMs - p.at;
+            const a = holdTrail
+              ? 0.5 * (0.55 + 0.45 * Math.max(0, 1 - age / TRAIL_FADE_MS))
+              : Math.max(0, 1 - age / TRAIL_FADE_MS) * 0.5;
             if (a > 0.02) trailBuckets[Math.min(5, (a * 12) | 0)].push(prevX, prevY, cp.x, cp.y);
           }
           // cp is the shared scratch — copy the scalars before it is reused
@@ -2443,13 +2492,19 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
       // Data block: the top-left toggle decides — OVERHEAD shows blocks only
       // for aircraft inside the overhead ring, ALL for every airborne one.
-      // Ground aircraft never show a block on their own (click for 7 s), but
+      // Ground aircraft never show a block on their own (tap to toggle), but
       // airborne-and-slow is a hovering helicopter, not a parked plane.
       // Military targets always carry their block (any mode, even on ground);
       // Coast Guard is the exception — it follows the normal display rules
       let showBlock = layers.blocks &&
         (t.pinned || t.meta.emerg ||
          (mil && !t.meta.cg) || (!f.onGround && (dataMode === 'all' || overhead)));
+      /* Tapped away by hand. Outranks the display rules above — including the
+         pin a follow puts on its target — so you can track an aircraft without
+         its block on screen. An EMERGENCY is never silenced this way. Hover
+         and list-isolate below still reveal it on demand, which is what makes
+         this safe to be sticky. */
+      if (t.detailHidden && !t.meta.emerg) showBlock = false;
       let blockAlpha = 1;
       if (!showBlock && t.detailUntil) {
         const left = t.detailUntil - nowMs;
@@ -2458,6 +2513,14 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
           blockAlpha = Math.min(1, left / 600); // fade out over the last 0.6 s
         }
       }
+      /* What a tap toggles against. A block can be up for reasons the click
+         handler cannot see — MILITARY, OVERHEAD and DATA:ALL all raise one with
+         no pin, and the aircraft list raises one for a few seconds — so testing
+         the pin alone made the first tap on any of those do nothing visible.
+         Recorded after those, but BEFORE the hover and list-isolate overrides
+         below: a tap should toggle what is stickily on screen, not whatever the
+         pointer is transiently revealing under itself. */
+      t.blockShown = showBlock;
       // Map hover: the pointed-at aircraft always shows its block
       if (hoveredHex && t.meta.hex === hoveredHex) {
         showBlock = true;
