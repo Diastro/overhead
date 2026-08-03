@@ -89,6 +89,19 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     alertNote = { text, until: Date.now() + ms };
   }
 
+  // Flight tracking (⌖ FIND, top left): declared with the shared state because
+  // the wheel handler, applyRange, maybeMilZoom and the click handler all read
+  // it from init-time paths — the panel wiring itself lives further down.
+  let tracked = null;            // { hex, label } of the followed aircraft
+  let trackPeekUntil = 0;        // a user drag pauses the follow until this time
+  let trackPanX = 0, trackPanY = 0; // sub-pixel pan remainder (panBy rounds)
+  let suppressNextClick = false; // a long-press must not also fire the tap action
+  function trackedCenter() {
+    if (!tracked) return null; // guard first: `targets` doesn't exist yet at init
+    const t = targets.get(tracked.hex);
+    return t ? [t.shown.lat, t.shown.lon] : null;
+  }
+
   // ------------------------------------------------------------------- map
   const map = L.map('map', {
     center: HOME,
@@ -127,7 +140,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const dy = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaY; // line-mode wheels
     wheelTarget = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(),
       (wheelTarget ?? map.getZoom()) - dy * 0.0035));
-    wheelAnchor = map.mouseEventToContainerPoint(e);
+    // While following a flight, zoom around the flight — anchoring at the
+    // cursor would shift the center and the follow would yank it back.
+    const tc = tracked && Date.now() > trackPeekUntil ? targets.get(tracked.hex) : null;
+    wheelAnchor = tc && tc.px ? L.point(tc.px.x, tc.px.y) : map.mouseEventToContainerPoint(e);
     if (!wheelRaf) wheelRaf = requestAnimationFrame(wheelStep);
   }, { passive: false });
 
@@ -246,10 +262,13 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   rangeInput.value = savedNm >= vm.min && savedNm <= vm.max ? savedNm : vm.default;
   function applyRange(nm, animate = true) {
     rangeVal.textContent = nm;
-    const north = project(HOME[0], HOME[1], 0, nm);
-    const south = project(HOME[0], HOME[1], 180, nm);
-    const east = project(HOME[0], HOME[1], 90, nm);
-    const west = project(HOME[0], HOME[1], 270, nm);
+    // While following a flight the slider sets scale around the flight, not
+    // around home — recentering on home would abandon the track visually.
+    const [cLat, cLon] = trackedCenter() || HOME;
+    const north = project(cLat, cLon, 0, nm);
+    const south = project(cLat, cLon, 180, nm);
+    const east = project(cLat, cLon, 90, nm);
+    const west = project(cLat, cLon, 270, nm);
     map.fitBounds(L.latLngBounds([north, south, east, west]), { animate });
   }
   // While dragging, redraw instantly at every mile step — no animation queue.
@@ -270,6 +289,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const banner = document.getElementById('wide-banner');
   let lastSentView;
   let viewTimer = null;
+  let pendingViewKey = null; // key the currently-armed debounce timer will send
   function onViewChanged() {
     const b = map.getBounds();
     const c = map.getCenter();
@@ -288,7 +308,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         rangeInput.value = clamped;
         localStorage.setItem('overhead-view-nm', String(clamped));
       }
-      rangeVal.textContent = trueNm;
+      // guard the write: this runs per moveend, which the tracking camera
+      // fires many times a second
+      if (rangeVal.textContent !== String(trueNm)) rangeVal.textContent = trueNm;
     }
 
     const corners = [
@@ -309,8 +331,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       : { lat: c.lat, lon: c.lng, radius_nm: Math.min(Math.ceil(needNm + 2), coverageNm) };
     const key = desired ? `${desired.lat.toFixed(2)},${desired.lon.toFixed(2)},${desired.radius_nm}` : 'null';
     if (key === lastSentView) return;
+    // An unchanged pending key must let the timer FIRE, not reset it: the
+    // tracking camera fires moveend every frame, and resetting per frame
+    // starved this debounce forever — the server was never told to poll the
+    // region and the tracked flight died a spurious TRACK LOST.
+    if (key === pendingViewKey) return;
+    pendingViewKey = key;
     clearTimeout(viewTimer);
     viewTimer = setTimeout(() => {
+      pendingViewKey = null;
       lastSentView = key;
       lastDesiredView = desired;
       fetch('/view', {
@@ -384,9 +413,16 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
 
   map.on('click', (e) => {
+    if (suppressNextClick) { suppressNextClick = false; return; }
     const best = targetAt(e.containerPoint.x, e.containerPoint.y, 30);
     focusedHex = null; // touch has no reliable mouseleave — a map tap releases list isolation
     if (best) {
+      // The tracked flight's pin is an invariant, not a toggle — a stray tap
+      // must not strip its data block while the reticle and follow continue.
+      if (tracked && best.meta.hex === tracked.hex) {
+        flashAlert(`⌖ TRACKING ${tracked.label} — HOLD IT OR ⌖ (TOP LEFT) TO RELEASE`, 4000);
+        return;
+      }
       // tap = show for 7 s; tap again while showing = pin; tap a pinned = unpin
       if (best.pinned) { best.pinned = false; best.detailUntil = 0; }
       else if ((best.detailUntil || 0) > Date.now()) best.pinned = true;
@@ -444,6 +480,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // flickering at coverage edge must not re-yank the display every minute
   function maybeMilZoom(ac) {
     const now = Date.now();
+    if (tracked) return; // an explicit track owns the camera — no scripted zooms
     if (!layers.milzoom) return; // scripted camera moves are opt-out (layers panel)
     if (document.hidden) return; // rAF is frozen — flyTo would strand mid-flight
     if (milZoom.active || now - milZoom.lastAt < 60000) return;
@@ -747,6 +784,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (!save.ok) throw new Error('could not save home');
     HOME = [lat, lon];
     localStorage.setItem('overhead-home', JSON.stringify({ lat, lon, label }));
+    stopTracking(); // the tracked flight belongs to the old sky
     targets.clear(); // old area's aircraft vanish; next poll brings the new sky
     airports = [];
     if (layers.airports) loadAirports();
@@ -784,6 +822,350 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
   homeSetBtn.addEventListener('click', setHome);
   homeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') setHome(); });
+
+  // ------------------------------------------------------- find & track flight
+  // ⌖ FIND (top left): search the live targets by callsign / tail / hex and
+  // follow the pick. Long-pressing an aircraft on the map (or its data block)
+  // tracks it directly. The camera keeps the flight centered; a manual drag
+  // "peeks" away for a few seconds, then the follow resumes. Release via the
+  // panel's STOP button or by long-pressing the tracked aircraft again.
+  const findToggle = document.getElementById('find-toggle');
+  const findPanel = document.getElementById('find-panel');
+  const findInput = document.getElementById('find-input');
+  const findResults = document.getElementById('find-results');
+  const trackCard = document.getElementById('track-card');
+  const trackWho = document.getElementById('track-who');
+  const trackInfo = document.getElementById('track-info');
+  const trackStop = document.getElementById('track-stop');
+  const FIND_LABEL = '⌖ FIND';
+
+  function closeFindPanel() {
+    findPanel.classList.remove('open');
+    findToggle.classList.remove('open');
+  }
+  // The three top-left panels (FIND, IN VIEW, HOME) share one spot on the
+  // glass — opening one must put the others away or they stack unreadably
+  // (HOME even auto-opens on first run and would paint over FIND).
+  function closeSiblingPanels() {
+    homePanel.classList.remove('open');
+    homeToggle.classList.remove('open');
+    if (listPanel.classList.contains('open')) {
+      listPanel.classList.remove('open');
+      listToggle.classList.remove('open');
+      localStorage.setItem('overhead-panel-list', '0');
+    }
+  }
+  listToggle.addEventListener('click', () => {
+    if (listPanel.classList.contains('open')) {
+      closeFindPanel();
+      homePanel.classList.remove('open');
+      homeToggle.classList.remove('open');
+    }
+  });
+  homeToggle.addEventListener('click', () => {
+    if (homePanel.classList.contains('open')) {
+      closeFindPanel();
+      if (listPanel.classList.contains('open')) {
+        listPanel.classList.remove('open');
+        listToggle.classList.remove('open');
+        localStorage.setItem('overhead-panel-list', '0');
+      }
+    }
+  });
+  // The wall display has no keyboard: never steal focus into a box that
+  // can't be typed in (and the empty-query nearest list below keeps the
+  // panel fully usable by touch alone).
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  findToggle.addEventListener('click', () => {
+    if (findBtnHeld) { findBtnHeld = false; return; } // the hold already released the track
+    const open = findPanel.classList.toggle('open');
+    findToggle.classList.toggle('open', open);
+    if (open) {
+      closeSiblingPanels();
+      renderFind();
+      updateTrackStatus();
+      if (!tracked && !coarsePointer) findInput.focus();
+    }
+  });
+
+  // Search: compare compacted alphanumerics so "N 123AB" matches N123AB.
+  // Exact > prefix > substring; an operator-name hit and a flight-number-only
+  // hit (AS350 → callsign ASA350, digits equal) rank behind those.
+  function findMatches(qRaw) {
+    const q = qRaw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!q) return [];
+    const opQ = qRaw.trim().toUpperCase();
+    const qDigits = (q.match(/\d+/) || [null])[0];
+    const scored = [];
+    for (const t of targets.values()) {
+      const m = t.meta;
+      let score = null;
+      for (const c of [m.callsign, m.reg, m.hex.toUpperCase()]) {
+        if (!c) continue;
+        const cc = c.replace(/[^A-Z0-9]/g, '');
+        if (cc === q) score = 0;
+        else if (cc.startsWith(q)) score = Math.min(score ?? 9, 1);
+        else if (cc.includes(q)) score = Math.min(score ?? 9, 2);
+      }
+      if (score == null && opQ.length >= 3 && m.operator &&
+          m.operator.toUpperCase().includes(opQ)) score = 3;
+      if (score == null && qDigits && q !== qDigits && m.callsign) {
+        const cd = (m.callsign.match(/\d+/) || [])[0];
+        if (cd === qDigits) score = 4; // IATA-style "AS350" vs callsign "ASA350"
+      }
+      if (score != null) {
+        scored.push([score, distNm(HOME[0], HOME[1], t.shown.lat, t.shown.lon), t]);
+      }
+    }
+    scored.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    return scored.slice(0, 8);
+  }
+
+  // Empty query: the nearest airborne flights, so the panel works with no
+  // keyboard at all (the wall display) — open, then tap a row.
+  function nearestAirborne() {
+    const rows = [];
+    for (const t of targets.values()) {
+      if (t.fix.onGround) continue;
+      rows.push([0, distNm(HOME[0], HOME[1], t.shown.lat, t.shown.lon), t]);
+    }
+    rows.sort((a, b) => a[1] - b[1]);
+    return rows.slice(0, 8);
+  }
+
+  function findRowText(t) {
+    const m = t.meta;
+    const alt = t.fix.onGround ? 'GROUND' : (fmtAlt(t.fix.alt) || `ALT ${NO_DATA}`);
+    return [m.type || NO_DATA, alt, m.operator || ''].filter(Boolean).join(' · ');
+  }
+  // Membership and ORDER freeze once rendered; only the live numbers update
+  // in place (refreshFind below). Re-sorting under an approaching finger made
+  // a tap land on the wrong flight — worst possible misfire, the camera
+  // immediately flies to it.
+  function renderFind() {
+    if (!findPanel.classList.contains('open')) return;
+    const matches = findInput.value.trim()
+      ? findMatches(findInput.value)
+      : nearestAirborne();
+    if (!matches.length) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = !feedState.ok ? 'NO DATA — FEED DOWN'
+        : findInput.value.trim() ? 'NO MATCH AMONG LIVE AIRCRAFT IN COVERAGE'
+        : 'QUIET SKY — NO AIRBORNE AIRCRAFT IN COVERAGE';
+      findResults.replaceChildren(li);
+      return;
+    }
+    findResults.replaceChildren(...matches.map(([, d, t]) => {
+      const m = t.meta;
+      const li = document.createElement('li');
+      li.dataset.hex = m.hex;
+      if (m.mil) li.classList.add('mil');
+      else if (m.police) li.classList.add('police');
+      const l1 = document.createElement('div');
+      l1.className = 'l1';
+      l1.textContent = m.callsign && m.reg && m.callsign !== m.reg
+        ? `${m.callsign} · ${m.reg}` : (m.callsign || m.reg || m.hex.toUpperCase());
+      const dist = document.createElement('span');
+      dist.className = 'dist';
+      dist.textContent = `${d.toFixed(1)} nm`;
+      l1.appendChild(dist);
+      const l2 = document.createElement('div');
+      l2.className = 'l2';
+      l2.textContent = findRowText(t);
+      li.append(l1, l2);
+      // resolve at tap time — the row may outlive the target
+      li.addEventListener('click', () => {
+        const live = targets.get(m.hex);
+        if (live) startTracking(live);
+      });
+      return li;
+    }));
+  }
+  // In-place refresh: update distances/altitudes on the frozen rows, dim rows
+  // whose target left the feed. Only an empty list rebuilds (aircraft may
+  // have arrived since the panel opened).
+  function refreshFind() {
+    if (!findPanel.classList.contains('open')) return;
+    const rows = findResults.querySelectorAll('li[data-hex]');
+    if (!rows.length) { renderFind(); return; }
+    for (const li of rows) {
+      const t = targets.get(li.dataset.hex);
+      if (!t) { li.classList.add('gone'); continue; }
+      li.classList.remove('gone');
+      const d = distNm(HOME[0], HOME[1], t.shown.lat, t.shown.lon);
+      li.querySelector('.dist').textContent = `${d.toFixed(1)} nm`;
+      li.querySelector('.l2').textContent = findRowText(t);
+    }
+  }
+  findInput.addEventListener('input', renderFind);
+  findInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const m = findInput.value.trim() ? findMatches(findInput.value) : nearestAirborne();
+      if (m.length) startTracking(m[0][2]);
+    } else if (e.key === 'Escape') {
+      closeFindPanel();
+    }
+  });
+  setInterval(() => { if (!paused) refreshFind(); }, 1000);
+
+  let trackStartAt = 0; // a drag mid-long-press must not instantly pause the new track
+  function startTracking(t) {
+    const label = t.meta.callsign || t.meta.reg || t.meta.hex.toUpperCase();
+    if (tracked && tracked.hex === t.meta.hex) {
+      // Re-picking the flight you already track means "take me back to it",
+      // not "release it" — release lives on long-press and the STOP button.
+      trackPeekUntil = 0;
+      closeFindPanel();
+      flashAlert(`⌖ ALREADY TRACKING ${label}`, 3000);
+      return;
+    }
+    if (tracked) { // switching targets: unpin the old one
+      const prev = targets.get(tracked.hex);
+      if (prev) prev.pinned = false;
+    }
+    // An in-flight military fly-by must hand the camera over completely,
+    // including its delayed "return to home view" timer.
+    if (milZoom.active) {
+      clearTimeout(milZoom.timer);
+      milZoom.active = false;
+      suppressRangeSync = false;
+      alertNote = { text: '', until: 0 };
+    }
+    tracked = { hex: t.meta.hex, label };
+    trackPeekUntil = 0;
+    trackPanX = trackPanY = 0;
+    trackStartAt = Date.now();
+    t.pinned = true; // the tracked flight always carries its data block
+    findToggle.classList.add('tracking');
+    closeFindPanel();
+    flashAlert(`⌖ TRACKING ${label} — HOLD ⌖ (TOP LEFT) TO RELEASE`, 6000);
+    updateTrackStatus();
+    wakeFrame();
+  }
+  function stopTracking(msg, ms = 5000) {
+    if (!tracked) return;
+    const t = targets.get(tracked.hex);
+    if (t) { t.pinned = false; t.detailUntil = 0; }
+    tracked = null;
+    findToggle.classList.remove('tracking');
+    if (msg) flashAlert(msg, ms);
+    updateTrackStatus();
+  }
+  trackStop.addEventListener('click', () => {
+    stopTracking(`TRACKING RELEASED — ${tracked ? tracked.label : ''}`);
+    renderFind();
+    applyRange(Number(rangeInput.value)); // glide the stranded camera home
+  });
+  // Hold the amber button to release instantly — the same muscle memory as
+  // long-pressing an aircraft, no panel round-trip.
+  let findBtnHeld = false; // consumed by the click handler above
+  let findBtnTimer = null;
+  findToggle.addEventListener('pointerdown', () => {
+    findBtnHeld = false;
+    if (!tracked) return;
+    findBtnTimer = setTimeout(() => {
+      findBtnHeld = true;
+      stopTracking(`TRACKING RELEASED — ${tracked ? tracked.label : ''}`);
+      applyRange(Number(rangeInput.value));
+    }, 550);
+  });
+  const cancelFindBtnHold = () => { clearTimeout(findBtnTimer); findBtnTimer = null; };
+  findToggle.addEventListener('pointerup', cancelFindBtnHold);
+  findToggle.addEventListener('pointerleave', cancelFindBtnHold);
+  findToggle.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // The top-left button doubles as the live status readout while tracking.
+  function updateTrackStatus() {
+    trackCard.classList.toggle('show', !!tracked);
+    if (!tracked) {
+      if (findToggle.textContent !== FIND_LABEL) findToggle.textContent = FIND_LABEL;
+      return;
+    }
+    const t = targets.get(tracked.hex);
+    if (!t) return; // the frame loop declares the loss
+    const d = distNm(HOME[0], HOME[1], t.shown.lat, t.shown.lon);
+    // figure-space pad: 9.8 → 10.2 NM must not reflow the whole control row
+    findToggle.textContent = `⌖ ${tracked.label} · ${d.toFixed(1).padStart(5, ' ')} NM`;
+    if (!findPanel.classList.contains('open')) return;
+    const m = t.meta;
+    trackWho.textContent = `⌖ ${tracked.label}${m.operator ? ' · ' + m.operator : ''}`;
+    const alt = t.fix.onGround ? 'GROUND' : (fmtAlt(t.fix.alt) || `ALT ${NO_DATA}`);
+    const gs = Number.isFinite(t.fix.gs) ? `${Math.round(t.fix.gs)} kt` : `${NO_DATA} kt`;
+    trackInfo.textContent = [m.type || NO_DATA, alt, gs, `${d.toFixed(1)} NM FROM HOME`].join(' · ');
+  }
+  setInterval(() => { if (!paused) updateTrackStatus(); }, 1000);
+
+  // A manual drag while following means "let me look around": pause the
+  // follow instead of fighting the gesture. The countdown restarts on every
+  // drag tick, so it effectively runs from release, and a drag that lands
+  // within the first moments of a fresh track (finger still down from the
+  // long-press) doesn't instantly pause what it just started.
+  map.on('dragstart', () => {
+    cancelLongPress(); // a real drag is never a long-press
+    if (!tracked || Date.now() - trackStartAt < 700) return;
+    trackPeekUntil = Date.now() + 5000;
+    flashAlert('FOLLOW PAUSED — RESUMES 5 S AFTER RELEASE', 2500);
+  });
+  map.on('drag', () => {
+    if (tracked && trackPeekUntil > Date.now()) trackPeekUntil = Date.now() + 5000;
+  });
+  // pinch-zoom fires zoom, not drag — extend an active peek there too
+  map.on('zoom', () => {
+    if (tracked && trackPeekUntil > Date.now()) trackPeekUntil = Date.now() + 5000;
+  });
+
+  // Long-press an aircraft (map icon or its data block) to track it. Pointer
+  // events cover mouse and touch; real movement cancels so a map drag that
+  // happens to start on a target never triggers a track. The slop is wider
+  // for touch — a finger held 550 ms on a wall panel wobbles more than 8 px.
+  const LONG_PRESS_MS = 550;
+  let lp = null;
+  const mapContainer = map.getContainer();
+  mapContainer.addEventListener('pointerdown', (e) => {
+    suppressNextClick = false; // stale suppression must not eat this tap
+    if (e.button !== 0) return;
+    const rect = mapContainer.getBoundingClientRect();
+    const t = targetAt(e.clientX - rect.left, e.clientY - rect.top, 30);
+    if (!t) return;
+    // A resting finger near a busy airport must not lock onto a parked
+    // airframe; flagged traffic (military/police/emergency) stays trackable.
+    const flagged = t.meta.mil || t.meta.police || t.meta.emerg || t.meta.cg;
+    if (t.fix.onGround && !flagged) return;
+    if (lp) clearTimeout(lp.timer);
+    const hex = t.meta.hex;
+    lp = {
+      sx: e.clientX,
+      sy: e.clientY,
+      slop: e.pointerType === 'touch' ? 14 : 8,
+      timer: setTimeout(() => {
+        lp = null;
+        const live = targets.get(hex); // may have been pruned during the hold
+        if (!live) return;
+        suppressNextClick = true; // the pointerup's click is part of this gesture
+        if (tracked && tracked.hex === hex) {
+          stopTracking(`TRACKING RELEASED — ${tracked.label}`);
+        } else {
+          startTracking(live);
+        }
+      }, LONG_PRESS_MS),
+    };
+  });
+  const cancelLongPress = () => {
+    if (!lp) return;
+    clearTimeout(lp.timer);
+    lp = null;
+  };
+  mapContainer.addEventListener('pointermove', (e) => {
+    if (lp && Math.hypot(e.clientX - lp.sx, e.clientY - lp.sy) > lp.slop) cancelLongPress();
+  });
+  mapContainer.addEventListener('pointerup', cancelLongPress);
+  mapContainer.addEventListener('pointercancel', cancelLongPress);
+  mapContainer.addEventListener('touchstart', (e) => {
+    if (e.touches.length >= 2) cancelLongPress(); // a pinch is never a long-press
+  }, { passive: true });
+  // a touch long-press must feed the gesture, not the browser context menu
+  mapContainer.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // Bandwidth used by the live feed (reported by the server per poll).
   // Clicking the readout opens a sparkline of the last 60 s of feed rate.
@@ -1811,6 +2193,47 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const dtF = Math.min((now - lastFrame) / 1000, 0.25);
     lastFrame = now;
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+    // Camera follow: glide the map so the tracked flight stays centered.
+    // Runs BEFORE the projection sync so everything drawn this frame shares
+    // the panned frame (a mid-frame pan would shear icons from their blocks).
+    // Uses last frame's shown position — off by one frame, sub-pixel. The
+    // exponential ease is framerate-independent and absorbs both the initial
+    // jump to a far-away pick and the steady drift of a moving target; a user
+    // drag pauses the follow via trackPeekUntil instead of fighting it.
+    if (tracked) {
+      const t = targets.get(tracked.hex);
+      if (!t) {
+        stopTracking(`⌖ SIGNAL LOST — ${tracked.label}`, 15000);
+      } else if (Date.now() > trackPeekUntil && !draggingRange) {
+        // With the AIRCRAFT layer off nothing updates t.shown — dead-reckon
+        // here so the camera doesn't silently freeze on a stale position.
+        if (!layers.aircraft) {
+          const age = (Date.now() - t.fix.at) / 1000;
+          const [la, lo] = projectState(t.fix, age);
+          t.shown.lat = la;
+          t.shown.lon = lo;
+        }
+        const p = map.latLngToContainerPoint([t.shown.lat, t.shown.lon]);
+        const dx = p.x - canvas.clientWidth / 2;
+        const dy = p.y - canvas.clientHeight / 2;
+        const d = Math.hypot(dx, dy);
+        const k = d > 2000 ? 1 : 1 - Math.exp(-dtF * 4);
+        // Leaflet rounds panBy to whole pixels (and fires moveend even on a
+        // zero pan) — accumulate sub-pixel motion and only pan when a real
+        // pixel is due, otherwise the flight rides ~8 px off-center in 1 px
+        // steps while zero-pans spam moveend every frame.
+        trackPanX += dx * k;
+        trackPanY += dy * k;
+        const ix = Math.round(trackPanX);
+        const iy = Math.round(trackPanY);
+        if (ix || iy) {
+          trackPanX -= ix;
+          trackPanY -= iy;
+          map.panBy([ix, iy], { animate: false });
+        }
+      }
+    }
     syncProjection(); // one read of map state for every projection this frame
 
     if (layers.rings) drawRings();
@@ -1962,9 +2385,28 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // only its data-block border — and once blocks are deconflicted the
       // block can sit well away from the icon, so the selection was easy to
       // lose. Pinned reads solid; a timed 7 s pick reads dashed.
+      const isTracked = !!tracked && t.meta.hex === tracked.hex;
       const pinned = !!t.pinned;
       const picked = pinned || (t.detailUntil || 0) > nowMs;
-      if (picked) {
+      if (isTracked) {
+        // Tracking reticle: amber ring with four ticks — unmistakably
+        // different from the plain selection ring.
+        ctx.save();
+        ctx.strokeStyle = COLORS.amber;
+        ctx.lineWidth = 1.8;
+        const r = 22 * ICON_K;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        for (let q = 0; q < 4; q++) {
+          const a = (q * Math.PI) / 2;
+          ctx.moveTo(pt.x + Math.cos(a) * (r - 4), pt.y + Math.sin(a) * (r - 4));
+          ctx.lineTo(pt.x + Math.cos(a) * (r + 5), pt.y + Math.sin(a) * (r + 5));
+        }
+        ctx.stroke();
+        ctx.restore();
+      } else if (picked) {
         ctx.save();
         ctx.strokeStyle = iconColor;
         ctx.lineWidth = pinned ? 1.8 : 1.2;

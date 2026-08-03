@@ -118,7 +118,7 @@ body.embed #bw { bottom: 92px; }
 body.embed #bw-chart { bottom: 128px; }
 body.embed #list-panel { bottom: 92px; }
 /* no header bar to clear, so the side panels start at the top */
-body.embed #list-panel, body.embed #home-panel { top: 16px; }
+body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16px; }
 #map {
   position: absolute;
   inset: 0;
@@ -169,7 +169,7 @@ body.light #map .leaflet-tile-pane { filter: none; }
   display: flex;
   gap: 8px;
 }
-#list-toggle, #home-toggle, #data-toggle, #layers-toggle {
+#find-toggle, #list-toggle, #home-toggle, #data-toggle, #layers-toggle {
   padding: 9px 14px;
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
@@ -188,13 +188,13 @@ body.light #map .leaflet-tile-pane { filter: none; }
   right: 16px;
   z-index: 600;
 }
-#list-toggle:hover, #home-toggle:hover, #data-toggle:hover, #layers-toggle:hover {
+#find-toggle:hover, #list-toggle:hover, #home-toggle:hover, #data-toggle:hover, #layers-toggle:hover {
   color: var(--bar-bright);
   border-color: var(--input-border);
 }
 /* Open/active is a real state, so it gets a filled treatment rather than the
    same subtle border as hover. */
-#list-toggle.open, #data-toggle.open, #layers-toggle.open, #home-toggle.open {
+#find-toggle.open, #list-toggle.open, #data-toggle.open, #layers-toggle.open, #home-toggle.open {
   color: var(--bar-bright);
   border-color: var(--accent);
   background: var(--btn-bg);
@@ -352,6 +352,95 @@ body.light #map .leaflet-tile-pane { filter: none; }
 #ac-list li.ground .l1,
 #ac-list li.ground .l1 .dist,
 #ac-list li.ground .l2 { color: var(--muted); }
+
+/* Find & track panel — same footprint as the HOME panel below it. */
+#find-panel {
+  position: absolute;
+  top: 58px;
+  left: 16px;
+  z-index: 650;
+  width: 308px;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  font-family: var(--mono);
+  color: var(--bar-ink);
+}
+#find-panel.open { display: flex; }
+#find-panel label { font-size: 10px; letter-spacing: 0.14em; color: var(--bar-bright); }
+#find-panel input {
+  padding: 8px 10px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--bar-bright);
+}
+#find-panel input:focus { outline: 1px solid var(--accent); }
+#find-panel .hint {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  line-height: 1.5;
+}
+#find-results {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 42vh;
+  overflow-y: auto;
+}
+#find-results li {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  border-bottom: 1px solid var(--panel-line);
+}
+#find-results li:hover { background: var(--hover-bg); }
+#find-results li.empty { color: var(--muted); cursor: default; font-size: 11px; letter-spacing: 0.08em; }
+/* target left the feed after the rows froze — dimmed, click is a no-op */
+#find-results li.gone { opacity: 0.4; cursor: default; }
+#find-results .l1 { display: flex; justify-content: space-between; color: var(--accent); font-weight: 700; }
+#find-results .l1 .dist { color: var(--bar-ink); font-weight: 400; }
+#find-results .l2 { color: var(--muted); font-size: 11px; }
+#find-results li.mil .l1 { color: var(--bad); }
+#find-results li.police .l1 { color: var(--police); }
+/* Tracking state: the toggle turns amber and carries the live readout. */
+#find-toggle.tracking {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: var(--btn-bg);
+}
+#track-card {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 5px;
+}
+#track-card.show { display: flex; }
+#track-who { color: var(--warn); font-weight: 700; font-size: 12px; letter-spacing: 0.08em; }
+#track-info { color: var(--bar-ink); font-size: 10.5px; line-height: 1.5; }
+#track-stop {
+  align-self: flex-start;
+  padding: 7px 14px;
+  background: var(--btn-bg);
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--warn);
+  cursor: pointer;
+}
+#track-stop:hover { background: var(--hover-bg); }
 
 #home-panel {
   position: absolute;
@@ -548,7 +637,7 @@ body.light #map .leaflet-tile-pane { filter: none; }
    finger is wider than a cursor. Grow tap targets vertically — the corner
    toggles sit at hardcoded left offsets, so widening them would overlap. */
 @media (pointer: coarse) {
-  #list-toggle, #home-toggle, #data-toggle, #layers-toggle { padding: 13px 14px; }
+  #find-toggle, #list-toggle, #home-toggle, #data-toggle, #layers-toggle { padding: 13px 14px; }
   #theme-toggle { padding: 8px 12px; }
   #layers-panel label, #list-ground { padding: 12px 16px; }
   #list-ground input { transform: scale(1.35); }
@@ -562,6 +651,9 @@ body.light #map .leaflet-tile-pane { filter: none; }
   #bwmode-row .seg button, #density-row .seg button { padding: 10px 12px; }
   #home-set { padding: 11px 18px; }
   #home-input { padding: 11px 10px; }
+  #find-input { padding: 11px 10px; }
+  #find-results li { padding: 12px 10px; }
+  #track-stop { padding: 11px 18px; }
 }
 
 /* COMPACT density (Settings > DENSITY): tighter chrome everywhere, in the
@@ -573,17 +665,17 @@ body.compact.embed #stage { inset: 0; }
 body.compact #theme-toggle { padding: 2px 8px; font-size: 11.5px; }
 body.compact #range-ctl { padding: 6px 10px 8px; gap: 4px; font-size: 10px; top: 10px; }
 body.compact #range-ctl input[type='range'] { width: 210px; height: auto; }
-body.compact #list-toggle, body.compact #home-toggle,
+body.compact #find-toggle, body.compact #list-toggle, body.compact #home-toggle,
 body.compact #data-toggle, body.compact #layers-toggle { padding: 6px 10px; font-size: 10px; }
 body.compact #layers-toggle { top: auto; bottom: 30px; }
-body.compact #list-panel, body.compact #home-panel { top: 44px; }
-body.compact.embed #list-panel, body.compact.embed #home-panel { top: 12px; }
+body.compact #list-panel, body.compact #home-panel, body.compact #find-panel { top: 44px; }
+body.compact.embed #list-panel, body.compact.embed #home-panel, body.compact.embed #find-panel { top: 12px; }
 body.compact #list-panel { width: 272px; bottom: 36px; }
 body.compact #list-panel h3 { padding: 7px 11px; font-size: 10px; }
 body.compact #list-ground { padding: 5px 11px; font-size: 9px; }
 body.compact #ac-list li { padding: 5px 11px; font-size: 11px; line-height: 1.4; }
 body.compact #ac-list .l2 { font-size: 10px; }
-body.compact #home-panel { width: 272px; padding: 9px 11px; gap: 6px; }
+body.compact #home-panel, body.compact #find-panel { width: 272px; padding: 9px 11px; gap: 6px; }
 body.compact #home-input { padding: 6px 8px; font-size: 12px; }
 body.compact #home-set { padding: 5px 12px; font-size: 10px; }
 body.compact #layers-panel { padding: 4px 0; font-size: 9.5px; bottom: 62px; min-width: 168px; }
@@ -625,13 +717,13 @@ body.wall #stage { inset: 56px 0 0 0; }
 body.wall.embed #stage { inset: 0; }
 body.wall #theme-toggle { padding: 6px 14px; font-size: 16px; }
 body.wall #range-ctl { font-size: 13px; gap: 8px; }
-body.wall #list-toggle, body.wall #home-toggle,
+body.wall #find-toggle, body.wall #list-toggle, body.wall #home-toggle,
 body.wall #data-toggle, body.wall #layers-toggle { padding: 12px 16px; font-size: 13px; }
 /* No per-button `left` here: #stage-controls is a flex row, so wall density
    only changes the buttons' size and the row lays itself out. The old
    hand-tuned offsets assumed desk-size labels and overlapped at wall size. */
-body.wall #list-panel, body.wall #home-panel { top: 70px; width: 372px; }
-body.wall.embed #list-panel, body.wall.embed #home-panel { top: 16px; }
+body.wall #list-panel, body.wall #home-panel, body.wall #find-panel { top: 70px; width: 372px; }
+body.wall.embed #list-panel, body.wall.embed #home-panel, body.wall.embed #find-panel { top: 16px; }
 body.wall #list-panel h3 { font-size: 13px; }
 body.wall #ac-list li { padding: 11px 16px; font-size: 15px; }
 body.wall #ac-list .l2 { font-size: 13px; }
@@ -639,4 +731,8 @@ body.wall #layers-panel { font-size: 12.5px; min-width: 224px; }
 body.wall #layers-panel label { padding: 9px 18px; }
 body.wall #alt-legend { padding: 11px 18px 4px; }
 body.wall #bw { font-size: 13px; }
+/* the long-press tip is the only search affordance on the wall — readable size */
+body.wall #find-panel .hint { font-size: 12px; }
+body.wall #find-results li { padding: 11px 10px; font-size: 15px; }
+body.wall #find-results .l2 { font-size: 13px; }
 body.wall #alert-banner { font-size: 15px; padding: 11px 24px; }

@@ -25,6 +25,7 @@
       <input type="range" id="range" min="1" max="43" step="1" value="13">
     </div>
     <div id="stage-controls">
+      <button id="find-toggle" type="button" title="Search for a flight and follow it — long-press any aircraft on the map to track it">⌖ FIND</button>
       <button id="list-toggle" type="button">✈ IN VIEW</button>
       <button id="home-toggle" type="button">⌂ HOME</button>
       <button id="data-toggle" type="button" title="Show data blocks for all aircraft, or only overhead when zoomed out">▤ DATA: OVERHEAD</button>
@@ -45,6 +46,17 @@
         <div class="ramp"><i></i><i></i><i></i><i></i><i></i></div>
         <div class="scale"><span>GND</span><span>10</span><span>20</span><span>FL300+</span></div>
       </div>
+    </div>
+    <div id="find-panel">
+      <div id="track-card">
+        <div id="track-who"></div>
+        <div id="track-info"></div>
+        <button id="track-stop" type="button">■ STOP TRACKING</button>
+      </div>
+      <label for="find-input">FIND FLIGHT — CALLSIGN, TAIL, OR HEX</label>
+      <input id="find-input" type="text" placeholder="e.g. ASA350 or N123AB" autocomplete="off" spellcheck="false">
+      <div class="hint">TAP A FLIGHT BELOW TO TRACK IT · LONG-PRESS ANY AIRCRAFT ON THE MAP DOES THE SAME</div>
+      <ul id="find-results"></ul>
     </div>
     <div id="home-panel">
       <label for="home-input">SET HOME — ADDRESS OR LAT,LON</label>

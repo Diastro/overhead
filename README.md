@@ -64,7 +64,11 @@ nohup node server/index.js >> data/server.log 2>&1 &
 kill $(lsof -ti tcp:8080 -sTCP:LISTEN)     # targets only what holds 8080
 ```
 
-Open the app and set your location with the **HOME** button. All personal
+Open the app and set your location with the **HOME** button. To follow a
+specific flight, use **⌖ FIND** (top left) to search by callsign, tail
+number, or hex — or long-press any aircraft on the map. The camera tracks
+the flight until you press STOP in the ⌖ panel (dragging the map pauses the
+follow for a few seconds so you can look around). All personal
 settings (home, theme, bandwidth mode, layers, density) live in your
 browser's localStorage — nothing personal is written to disk or committed.
 Physical-install settings (coverage radius, rings, poll cadence, port) live
