@@ -1853,6 +1853,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // selected targets are placed first, so they keep the preferred slot and
   // everyone else routes around them.
   const PLACE_GAP = 26; // horizontal standoff from the icon
+  // Which side each block last landed on, keyed by hex, and how far past centre
+  // a target must travel before that side is allowed to change. Without this
+  // the preferred side is a bare `x < centre` test, so a target sitting on the
+  // centre line — exactly where camera-follow pins the tracked flight — crosses
+  // the midpoint every frame on sub-pixel drift and its block strobes between
+  // the two sides of the icon. The on-glass bounds check below still overrides
+  // a sticky side that would run the block off the edge.
+  const blockSide = new Map(); // hex -> 'r' | 'l'
+  const SIDE_HYST = 60;        // px past centre before the preferred side flips
   function placeBlocks(queue) {
     queue.sort((a, b) => a.rank - b.rank);
     const placed = [];
@@ -1864,8 +1873,13 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const { w, h } = blockSize(item.lines, item.opts);
       item.w = w;
       item.h = h;
-      // prefer the side with more room, then step vertically before flipping
-      const preferRight = item.x < canvas.clientWidth / 2;
+      // prefer the side with more room, then step vertically before flipping;
+      // inside the deadband hold whichever side this block used last frame
+      const mid = canvas.clientWidth / 2;
+      const prev = blockSide.get(item.hex);
+      const preferRight = item.x < mid - SIDE_HYST ? true
+        : item.x > mid + SIDE_HYST ? false
+        : prev ? prev === 'r' : item.x < mid;
       const xs = preferRight ? [item.x + PLACE_GAP, item.x - PLACE_GAP - w]
         : [item.x - PLACE_GAP - w, item.x + PLACE_GAP];
       const dys = [0, -h - 12, h + 12, -(h + 12) * 2, (h + 12) * 2];
@@ -1887,7 +1901,17 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (!best) best = { bx: xs[0], by: item.y - h / 2, w, h };
       item.bx = best.bx;
       item.by = best.by;
+      // remember where it actually landed, not what it preferred: if crowding
+      // pushed the block across the icon it should stay there rather than fight
+      // its way back the moment the neighbour clears.
+      blockSide.set(item.hex, best.bx >= item.x ? 'r' : 'l');
       placed.push(best);
+    }
+    // drop sides for aircraft that no longer draw a block, so the map tracks
+    // what is on the glass instead of every hex seen since load
+    if (blockSide.size > queue.length) {
+      const live = new Set(queue.map((i) => i.hex));
+      for (const hex of blockSide.keys()) if (!live.has(hex)) blockSide.delete(hex);
     }
   }
 
