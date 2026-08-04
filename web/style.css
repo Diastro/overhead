@@ -126,7 +126,14 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
 }
 /* Lift the dark basemap's road/shoreline lines a touch — multiplicative
    brightness barely moves the near-black ground but makes outlines pop. */
-#map .leaflet-tile-pane { filter: brightness(1.3); }
+/* CARTO's dark tiles sit almost entirely below mid-grey, so raising CONTRAST
+   is exactly wrong here: it pivots on mid-grey and crushes the coastline, the
+   freeway network and the admin-boundary dashes into the background. Lifting
+   the shadows instead — brightness up, contrast slightly DOWN — separates land
+   from water and brings out the borders CARTO already draws but that were lost
+   in the black. Saturation gives the water back its blue so the coast reads as
+   a coast rather than as a value change. */
+#map .leaflet-tile-pane { filter: brightness(2) contrast(.9) saturate(1.25); }
 body.light #map .leaflet-tile-pane { filter: none; }
 #scope {
   position: absolute;
