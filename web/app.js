@@ -1827,13 +1827,23 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // brightness carries the altitude. Dark theme: higher is brighter.
       altBands: ['#1c6ea8', '#2794cf', '#38bdff', '#84d8ff', '#c8ecff'],
       iconHalo: 'rgba(4,10,18,0.85)',
-      blockBg: 'rgba(12,24,38,0.92)', blockEdge: '#38587a',
+      // The *Edge values are not interior chrome: drawBlock() fills the block
+      // and then strokes it, so half the stroke width lands on bare map, and a
+      // tagged block's leader line is drawn in `edge` across open map. They
+      // have to clear contrast against the basemap like any other on-map ink.
+      // blockEdge is the widest exposure of all — it borders every ordinary
+      // aircraft — and it measured 2.39:1.
+      blockBg: 'rgba(12,24,38,0.92)', blockEdge: '#638cb7',
       amber: '#ffbe2e', amberEdge: '#d99b17', amberBg: 'rgba(26,20,8,0.94)',
-      mil: '#ff4b33', milEdge: '#d63b26', milBg: 'rgba(30,10,8,0.93)',
+      mil: '#ff4b33', milEdge: '#e0604f', milBg: 'rgba(30,10,8,0.93)',
       dim: '#77879a',
       // Neutral slate, not radar-green: the rings are a measuring grid, and
       // saturated green reads as decoration and competes with the targets.
-      ring: '#3c4a5a', ringText: '#8fa2b5', ringLabelBg: 'rgba(8,14,22,0.82)',
+      // Lightened just past the 3:1 graphical floor — it measured 1.95:1 on
+      // the Esri dark map, which is a grid you cannot actually read a range
+      // off. Hue and saturation are unchanged, so it stays a quiet slate
+      // rather than becoming another thing competing for attention.
+      ring: '#54687f', ringText: '#8fa2b5', ringLabelBg: 'rgba(8,14,22,0.82)',
       home: '#e8f0f7',
       airport: '#84a9cc',
       textNormal: ['#4cc7ff', '#eaf4fd', '#ffc95e', '#a9bed2'],
@@ -1843,23 +1853,43 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       chartMuted: '#5a6c7e',
       chartLow: '#2e6f9c', chartHigh: '#38bdff', chartPeak: '#ffbe2e',
       vsUp: '#22df82', vsDown: '#ff5540', vsFlat: '#8b9cae',
-      police: '#4d82ff', policeEdge: '#3a63e8', policeBg: 'rgba(10,14,34,0.93)',
+      police: '#4d82ff', policeEdge: '#6182ed', policeBg: 'rgba(10,14,34,0.93)',
       policeFlash: '#cfe0ff',
       policeWhite: '#eef4ff', // stripe partner for the police livery
       textPolice: ['#93b1ff', '#e4ebff', '#b9c8f5', '#96a7e4'],
       hiMix: 0.55, // how far the selected-block border lightens toward white
     },
     light: {
-      icon: '#0a7fd9', trail: '#3fa2e6', leader: '#8b8875',
+      // Every value here that lands ON the map was re-derived against the
+      // actual rendered light basemap (#e5ebe8 — the paler of the two, so the
+      // stricter one), not against the cream chrome. The old set was tuned by
+      // eye and most of it failed AA badly: the trail at 2.31:1, the overhead
+      // amber at 1.89:1. Each was darkened along L with its hue and saturation
+      // held, so a colour still means what it meant.
+      icon: '#0764ab', trail: '#14669f', leader: '#8a8774',
       // Light theme inverts the ramp: on cream, higher reads as *deeper* ink,
       // so prominence still grows with altitude instead of washing out.
-      altBands: ['#6fb2dc', '#3f96cf', '#0a7fd9', '#0a5a9c', '#0a3c6b'],
+      //
+      // The ramp could not be fixed band by band. Pushing each one to 4.5:1
+      // individually collapsed the lowest three onto the same luminance and
+      // destroyed the altitude encoding — five bands, three of them identical.
+      // It has to be designed as a whole: the LIGHTEST band is what the 4.5:1
+      // limit binds, so it sits there, and the rest are spaced evenly in L*
+      // down to near-black. Contrasts 4.54 / 6.03 / 7.92 / 10.23 / 12.71,
+      // monotonic, min step 7.5 L*.
+      altBands: ['#116daf', '#0e5a90', '#0b4874', '#093758', '#06273e'],
       iconHalo: 'rgba(255,255,255,0.92)',
-      blockBg: 'rgba(253,250,243,0.94)', blockEdge: '#b3a481',
-      amber: '#f59500', amberEdge: '#e07f00', amberBg: 'rgba(253,246,227,0.96)',
-      mil: '#e03526', milEdge: '#c42d1f', milBg: 'rgba(250,235,231,0.96)',
-      dim: '#9aa39c',
-      ring: '#b9b2a0', ringText: '#6d7a86', ringLabelBg: 'rgba(253,250,243,0.86)',
+      blockBg: 'rgba(253,250,243,0.94)', blockEdge: '#6e6142',
+      // The overhead marker is the most important thing on the scope and was
+      // the worst offender at 1.89:1. amberEdge is worse than it looks: it is
+      // both the overhead block's border AND the leader line drawn from the
+      // target across open map, so it was failing at 2.21:1 in the one place
+      // it most needed not to. Only the *Bg values are genuinely interior.
+      amber: '#8c5500', amberEdge: '#925300', amberBg: 'rgba(253,246,227,0.96)',
+      mil: '#bc281b', milEdge: '#ba2b1d', milBg: 'rgba(250,235,231,0.96)',
+      dim: '#7d8980',
+      // Rings and leader lines are guides, so 3:1 is the bar, not 4.5.
+      ring: '#8f856a', ringText: '#6d7a86', ringLabelBg: 'rgba(253,250,243,0.86)',
       home: '#34435a',
       airport: '#4a6b8a',
       textNormal: ['#0a72c4', '#2b3640', '#d97706', '#57646f'],
@@ -1868,8 +1898,14 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       tagText: '#402f08',
       chartMuted: '#9aa1a8',
       chartLow: '#7db8dd', chartHigh: '#0a7fd9', chartPeak: '#f59500',
-      vsUp: '#12a35c', vsDown: '#e03526', vsFlat: '#7f8a95',
-      police: '#2f55e6', policeEdge: '#2f55e6', policeBg: 'rgba(233,238,252,0.96)',
+      // These sit on the data block's own panel, not on the map, so they are
+      // measured against blockBg. vsDown used to be byte-identical to `mil`
+      // (#e03526) — every descending airliner's trend arrow was painted the
+      // exact colour reserved for "military or flagged", which dilutes the one
+      // red that is supposed to mean something. Now distinct, and both clear
+      // 4.5:1 on the panel (was 4.28 and 3.14).
+      vsUp: '#0e7c46', vsDown: '#b8391f', vsFlat: '#7f8a95',
+      police: '#2c52e6', policeEdge: '#2c52e6', policeBg: 'rgba(233,238,252,0.96)',
       policeFlash: '#7fa0f0',
       policeWhite: '#ffffff', // stripe partner for the police livery
       textPolice: ['#1a37a8', '#252f45', '#31479c', '#4b5b8c'],

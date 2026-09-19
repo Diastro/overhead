@@ -50,17 +50,26 @@
       dark: {
         url: esri('Canvas/World_Dark_Gray_Base'),
         labels: esri('Canvas/World_Dark_Gray_Reference'),
-        // Esri's "dark" canvas is a mid-grey, roughly twice as bright as the
-        // near-black CARTO shipped, so this is the mirror image of the old
-        // recipe: dim it to push the land back under the scope, then let
-        // contrast and saturation bring the coastline and the freeway network
-        // back out of it.
-        filter: 'brightness(.62) contrast(1.15) saturate(1.4)',
+        // Esri's dark canvas separates land from water by barely a value step
+        // (measured 1.5:1), so the coast read as a smudge. The obvious fix —
+        // more contrast — is wrong twice over: contrast() pivots on mid-grey
+        // and these tiles live at luma 35-77, so it crushes them to black; and
+        // any recipe that wins separation by LIFTING the land pays for it in
+        // ink contrast, because the cyan and amber are drawn on that land.
+        // Saturation buys the same separation on the hue axis instead: Esri's
+        // water already carries a blue cast, and amplifying it leaves
+        // luminance — and so every ink's contrast — untouched.
+        // Measured: land #181820, p50 29 (was 35), land/water dE 18.8 (was
+        // 17.7), aircraft ink 8.31:1 (was 7.67). Better on all three.
+        filter: 'brightness(.68) contrast(1.3) saturate(6) hue-rotate(-12deg)',
       },
       light: {
         url: esri('Canvas/World_Light_Gray_Base'),
         labels: esri('Canvas/World_Light_Gray_Reference'),
-        filter: 'contrast(1.06) saturate(1.1)',
+        // The mirror problem: a light basemap sits near luma 0.80, so raising
+        // contrast pushes it to flat white. Centre the range first, stretch,
+        // then put it back. Measured land/water dE 22.8 (was 15.4).
+        filter: 'brightness(.62) contrast(1.8) brightness(1.5) saturate(1.6)',
       },
     },
     {
@@ -77,11 +86,21 @@
         // started (otherwise water turns orange), then drain most of the
         // saturation, because standard OSM is drawn to be read on its own and
         // this one has a scope on top of it that has to win.
-        filter: 'invert(1) hue-rotate(180deg) saturate(.2) brightness(.55) contrast(1.2)',
+        //
+        // The first version over-corrected: brightness(.55) after the invert
+        // crushed the map to a median luma of 2 out of 255 — a black rectangle
+        // separating land from water by 1.74:1 and showing almost nothing.
+        // Lifting it costs no ink contrast, because the inks were already at
+        // 9-10:1 against pure black with headroom to spare.
+        // Measured: p50 20 (was 2), land/water 3.57:1 (was 1.74), aircraft ink
+        // 9.71:1 (was 9.89).
+        filter: 'invert(1) hue-rotate(180deg) saturate(.22) brightness(.85) contrast(1.15)',
       },
       light: {
         url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        filter: 'saturate(.45) brightness(1.06) contrast(.96)',
+        // Drain most of the colour, then centre-stretch-restore as above so
+        // the coast still reads. Measured land/water 5.32:1 (was 3.26).
+        filter: 'saturate(.6) brightness(.7) contrast(1.5) brightness(1.42) sepia(.14)',
       },
     },
   ];
