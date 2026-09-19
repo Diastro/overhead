@@ -147,6 +147,10 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
    web/basemaps.js carries its own recipe per theme, and applyBasemap() puts it
    on that layer's OWN container — a filter on the shared pane also caught the
    outgoing layer mid-crossfade and flashed it through the wrong recipe. */
+/* Composite providers blend one tile layer onto another (TERRAIN screens the
+   canvas over a hillshade). Without an isolation context the blend would reach
+   past the pane and mix with the page background underneath it. */
+#map .leaflet-tile-pane { isolation: isolate; }
 #scope {
   position: absolute;
   inset: 0;

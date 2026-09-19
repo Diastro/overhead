@@ -32,7 +32,7 @@
 
   // The keyless set, in preference order — the first is the default, and an
   // automatic failover walks the list in this order.
-  const KEYLESS = [
+  const KEYLESS_BASE = [
     {
       id: 'esri',
       label: 'ESRI CANVAS',
@@ -59,9 +59,14 @@
         // Saturation buys the same separation on the hue axis instead: Esri's
         // water already carries a blue cast, and amplifying it leaves
         // luminance — and so every ink's contrast — untouched.
-        // Measured: land #181820, p50 29 (was 35), land/water dE 18.8 (was
-        // 17.7), aircraft ink 8.31:1 (was 7.67). Better on all three.
-        filter: 'brightness(.68) contrast(1.3) saturate(6) hue-rotate(-12deg)',
+        // Then pushed further on request, because "the coast is separated"
+        // and "I can see the coast from the sofa" are different bars. Centre
+        // the range, stretch it hard, put it back: the land lifts to a slate
+        // and the water drops to navy, so the shoreline is a real edge rather
+        // than a change of shade. Measured land #333848, p50 61 (was 29),
+        // land/water dE 36.4 (was 18.8 — nearly double), and every ink still
+        // clears its bar on the lighter land (aircraft 5.5:1).
+        filter: 'brightness(1.7) contrast(1.6) brightness(.46) saturate(6.5) hue-rotate(-12deg)',
       },
       light: {
         url: esri('Canvas/World_Light_Gray_Base'),
@@ -105,6 +110,44 @@
     },
   ];
 
+  // Relief. Hillshade alone is not a basemap — water and flat land shade
+  // identically, so Puget Sound comes out as blank as a parking lot — and the
+  // terrain services that DO carry water (World_Terrain_Base, Shaded_Relief)
+  // stop at zoom 12, which is inside the range this display actually uses.
+  // So this composites: hillshade underneath for the landform, the same Canvas
+  // that the default provider uses screened over the top for water, roads and
+  // coastline. Both halves are the ones already proven to reach zoom 16.
+  //
+  // Contours were the other option (OpenTopoMap has real ones) and were not
+  // taken: at 30-40 KB a tile it is four times the weight for cartography that
+  // is far busier under a data layer, and it leans on a volunteer tile server.
+  const TERRAIN = {
+    id: 'terrain',
+    label: 'TERRAIN',
+    note: 'Esri hillshade with the canvas over it — landform relief, same zoom range and roughly double the tiles',
+    attribution: ESRI_ATTR,
+    maxZoom: 19,
+    maxNativeZoom: 16,
+    dark: {
+      layers: [
+        { url: esri('Elevation/World_Hillshade'), filter: 'invert(1) brightness(.5) contrast(1.1)' },
+        { url: esri('Canvas/World_Dark_Gray_Base'),
+          filter: 'brightness(.9) contrast(1.3) saturate(6) hue-rotate(-12deg)',
+          blend: 'screen', opacity: 0.85 },
+      ],
+      labels: esri('Canvas/World_Dark_Gray_Reference'),
+    },
+    light: {
+      layers: [
+        { url: esri('Canvas/World_Light_Gray_Base'),
+          filter: 'brightness(.62) contrast(1.8) brightness(1.5) saturate(1.6)' },
+        { url: esri('Elevation/World_Hillshade'), filter: 'contrast(1.3)',
+          blend: 'multiply', opacity: 0.6 },
+      ],
+      labels: esri('Canvas/World_Light_Gray_Reference'),
+    },
+  };
+
   // CARTO's Positron/Dark Matter pair, for anyone who wants the exact look
   // Overhead used to have back. Overhead never requires a key: set
   // `carto_key` in config.local.json — which is gitignored — and this appears
@@ -133,7 +176,7 @@
 
   // `key` is optional. Without one the app is entirely keyless.
   function providers(key) {
-    const list = KEYLESS.map((p) => ({ ...p }));
+    const list = [...KEYLESS_BASE, TERRAIN].map((p) => ({ ...p }));
     if (key) list.push(carto(key));
     return list;
   }

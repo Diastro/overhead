@@ -87,7 +87,14 @@ async function probe(url) {
     for (const theme of BASEMAPS.THEMES) {
       const spec = p[theme];
       if (!spec) continue;
-      for (const [layer, tmpl] of [['base', spec.url], ['labels', spec.labels]]) {
+      // A composite theme carries `layers` instead of a single url, and the
+      // first version of this loop read only `spec.url` — so a provider built
+      // that way would have been skipped in silence, which is the same way the
+      // placeholder tiles got through the first time.
+      const parts = (spec.layers || [{ url: spec.url }])
+        .map((l, i) => [spec.layers ? `layer${i}` : 'base', l.url]);
+      parts.push(['labels', spec.labels]);
+      for (const [layer, tmpl] of parts) {
         if (!tmpl) continue;
         // Scoped to this one URL template: the comparison is "does this
         // service draw something different at a different scale". Comparing

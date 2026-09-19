@@ -191,23 +191,35 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       maxNativeZoom: provider.maxNativeZoom ?? provider.maxZoom,
       attribution: provider.attribution,
     };
-    const next = [L.tileLayer(spec.url, opts)];
+    // A theme is either one tile layer (url + filter) or a stack of them.
+    // TERRAIN needs the stack: hillshade carries the landform but not the
+    // water, so the canvas is composited over it for coast, roads and labels.
+    const stack = spec.layers || [{ url: spec.url, filter: spec.filter }];
+    const next = stack.map((l, i) => L.tileLayer(l.url, i === 0 ? opts : { ...opts, attribution: '' }));
+    const styles = stack.slice();
     // Esri ships its place names as a separate transparent layer. That is a
     // second tile request per view, which a Pi on rural Wi-Fi feels, so it is
     // a switch rather than an assumption — but it defaults on, because a map
     // with no city names is a map of nowhere.
     if (spec.labels && layers.maplabels) {
       next.push(L.tileLayer(spec.labels, { ...opts, attribution: '' }));
+      styles.push({ filter: spec.labelsFilter || 'none' });
     }
     // The filter goes on each layer's own container, not on the shared tile
     // pane. On the pane it also hit the outgoing layer during the deliberate
     // 400 ms crossfade below, so every switch flashed the OLD provider's
     // tiles through the NEW provider's recipe — briefly inverting the whole
-    // wall to white on the way into the OSM theme.
-    next.forEach((l) => {
+    // wall to white on the way into the OSM theme. Per-container is also what
+    // makes a composite possible at all: each layer needs its own recipe, and
+    // the upper ones need their own blend mode against the ones below.
+    next.forEach((l, i) => {
       l.addTo(map);
       const el = l.getContainer();
-      if (el) el.style.filter = spec.filter || 'none';
+      if (!el) return;
+      const st = styles[i] || {};
+      el.style.filter = st.filter || 'none';
+      el.style.mixBlendMode = st.blend || 'normal';
+      el.style.opacity = st.opacity != null ? String(st.opacity) : '';
     });
     watchBasemap(next[0], provider);
     const old = tileLayers;
@@ -1822,10 +1834,22 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // inks (not pastels) that hold 4.5:1+ contrast on the cream basemap.
   const THEMES = {
     dark: {
-      icon: '#38bdff', trail: '#2f96e6', leader: '#48708f',
+      // Re-derived after the dark basemap was lifted for coastline contrast.
+      // Raising the land from #181820 to #333848 cost roughly 1.2 stops of
+      // headroom, and eight of these inks quietly dropped under their bar — a
+      // reminder that the palette and the basemap filter are one system, not
+      // two settings.
+      icon: '#38bdff', trail: '#56aaeb', leader: '#5b89ac',
       // Altitude ramp, low → high. One cool hue family so the scope stays calm;
       // brightness carries the altitude. Dark theme: higher is brighter.
-      altBands: ['#1c6ea8', '#2794cf', '#38bdff', '#84d8ff', '#c8ecff'],
+      //
+      // Same whole-ramp treatment as the light theme, mirrored: here the
+      // DARKEST band is what the contrast limit binds, so it sits at the floor
+      // and the rest space evenly in L* up to near-white. The old ramp started
+      // at #1c6ea8, which measured 2.14:1 on the lifted land — a lowest-band
+      // target you could not pick out from the map behind it.
+      // Contrasts 4.62 / 5.78 / 7.12 / 8.73 / 10.57, monotonic, min step 7.1 L*.
+      altBands: ['#2aadee', '#6ac0f0', '#9cd1f2', '#c6e3f6', '#ecf5fc'],
       iconHalo: 'rgba(4,10,18,0.85)',
       // The *Edge values are not interior chrome: drawBlock() fills the block
       // and then strokes it, so half the stroke width lands on bare map, and a
@@ -1833,9 +1857,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // have to clear contrast against the basemap like any other on-map ink.
       // blockEdge is the widest exposure of all — it borders every ordinary
       // aircraft — and it measured 2.39:1.
-      blockBg: 'rgba(12,24,38,0.92)', blockEdge: '#638cb7',
+      blockBg: 'rgba(12,24,38,0.92)', blockEdge: '#86a6c7',
       amber: '#ffbe2e', amberEdge: '#d99b17', amberBg: 'rgba(26,20,8,0.94)',
-      mil: '#ff4b33', milEdge: '#e0604f', milBg: 'rgba(30,10,8,0.93)',
+      mil: '#ff7b6a', milEdge: '#e8897d', milBg: 'rgba(30,10,8,0.93)',
       dim: '#77879a',
       // Neutral slate, not radar-green: the rings are a measuring grid, and
       // saturated green reads as decoration and competes with the targets.
@@ -1843,7 +1867,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // the Esri dark map, which is a grid you cannot actually read a range
       // off. Hue and saturation are unchanged, so it stays a quiet slate
       // rather than becoming another thing competing for attention.
-      ring: '#54687f', ringText: '#8fa2b5', ringLabelBg: 'rgba(8,14,22,0.82)',
+      ring: '#6f86a0', ringText: '#8fa2b5', ringLabelBg: 'rgba(8,14,22,0.82)',
       home: '#e8f0f7',
       airport: '#84a9cc',
       textNormal: ['#4cc7ff', '#eaf4fd', '#ffc95e', '#a9bed2'],
@@ -1853,7 +1877,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       chartMuted: '#5a6c7e',
       chartLow: '#2e6f9c', chartHigh: '#38bdff', chartPeak: '#ffbe2e',
       vsUp: '#22df82', vsDown: '#ff5540', vsFlat: '#8b9cae',
-      police: '#4d82ff', policeEdge: '#6182ed', policeBg: 'rgba(10,14,34,0.93)',
+      police: '#7aa1ff', policeEdge: '#87a0f1', policeBg: 'rgba(10,14,34,0.93)',
       policeFlash: '#cfe0ff',
       policeWhite: '#eef4ff', // stripe partner for the police livery
       textPolice: ['#93b1ff', '#e4ebff', '#b9c8f5', '#96a7e4'],
