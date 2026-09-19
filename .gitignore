@@ -1,8 +1,11 @@
 node_modules/
-config.local.json
+config.local.json*
 data/*.sqlite
 data/usage.json
 data/airports.csv
 data/airspace-*.json
 data/server.log
+# writeJsonAtomic() writes <file>.tmp then renames; a crash between the two
+# leaves the sibling behind, and it matches none of the patterns above.
+*.tmp
 .DS_Store

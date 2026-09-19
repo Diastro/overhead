@@ -76,6 +76,40 @@ in `config.json`; edit + restart for those.
 
 Deploying on a Raspberry Pi wall display: see [docs/pi.md](docs/pi.md).
 
+## Basemaps
+
+The map tiles come from a list of **keyless** providers in `web/basemaps.js`,
+switchable from the **◧ LAYERS** panel:
+
+| Provider | Style | Notes |
+|---|---|---|
+| **Esri Canvas** (default) | Dark Gray / Light Gray + place names | Closest to the basemap Overhead used to ship. ~8 KB a tile. Its data stops at zoom 16 — past that the last real tile is upscaled, so very close zooms go soft rather than blank. |
+| **OpenStreetMap** | Standard; the dark theme is derived in CSS | ~30 KB a tile and busier, but it is the one provider with a published policy that permits this use. |
+
+Repeated tile errors switch providers on their own and say so on the glass.
+That switch is not persisted — an outage should not overwrite a choice you
+made — so a reload goes back to your pick and re-tests it.
+
+`npm run check:basemaps` fetches real tiles from every provider across five
+zoom levels and fails if two of them come back byte-identical — which is what
+a provider serves when it has run out of map data and is answering with a
+placeholder. Run it if the map looks wrong.
+
+**Why this is a list.** Overhead used CARTO's basemaps, which were keyless for
+years. On 28 Aug 2026 CARTO began stamping anonymous requests with an "API KEY
+REQUIRED" watermark — served with **HTTP 200**, so nothing errored and the
+display quietly turned to garbage until somebody looked at it. Nothing catches
+that automatically; what a list buys you is that fixing it costs one click.
+
+If you want CARTO's Dark Matter / Voyager pair back, their key is free. Put it
+in `config.local.json` — which is gitignored — and a third option appears:
+
+```json
+{ "carto_key": "your-key-here" }
+```
+
+Never put it in `config.json`: that file is committed.
+
 ## Why not FlightRadar24 on a tablet?
 
 - No account, no subscription, no ads, no nag screens — ever
@@ -99,6 +133,10 @@ web/            The display: Leaflet basemap + one canvas overlay drawing
                 everything (icons, trails, data blocks, rings, airports,
                 airspace). Dead-reckons aircraft between feed snapshots for
                 smooth motion. Vendored Leaflet — no CDN at runtime.
+                basemaps.js holds the keyless tile providers.
+tools/          check-basemaps.js — fetches a real tile from every provider
+                so a withdrawn service is caught by `npm run check:basemaps`
+                rather than by looking at the wall.
 data/           Machine-written caches and counters (gitignored).
 ```
 
@@ -116,9 +154,10 @@ Code is MIT licensed (see `LICENSE`). Bundled/consumed third parties:
 
 - [Leaflet](https://leafletjs.com) — BSD-2-Clause (vendored; see
   `web/vendor/LEAFLET-LICENSE.txt`)
-- Basemaps © [OpenStreetMap](https://www.openstreetmap.org/copyright)
-  contributors, © [CARTO](https://carto.com/attributions) — attribution must
-  stay visible in the app
+- Basemaps: [Esri](https://www.esri.com) Dark/Light Gray Canvas (Esri, HERE,
+  Garmin, © OpenStreetMap contributors) and the
+  [OpenStreetMap](https://www.openstreetmap.org/copyright) standard layer —
+  attribution must stay visible in the app
 - Live aircraft data: [airplanes.live](https://airplanes.live) /
   [adsb.lol](https://adsb.lol) community feeds — non-commercial use
 - Geocoding: [Nominatim](https://nominatim.org) (OpenStreetMap) — rate-limited

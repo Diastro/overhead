@@ -6,6 +6,7 @@
   "type": "commonjs",
   "engines": { "node": ">=18" },
   "scripts": {
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "check:basemaps": "node tools/check-basemaps.js"
   }
 }

@@ -11,7 +11,7 @@
 <body>
   <header id="bar">
     <div class="brand">OVERHEAD<span>▲</span></div>
-    <div class="stat center"><b id="count">0</b> AIRCRAFT · <b id="overhead-count">0</b> OVERHEAD</div>
+    <div class="stat center"><b id="count">0</b> AIRCRAFT · <span id="overhead-stat"><b id="overhead-count">0</b> OVERHEAD</span></div>
     <div class="right">
       <div class="stat" id="clock">--:--:--</div>
       <button id="theme-toggle" type="button" title="Toggle light/dark theme">☾</button>
@@ -41,6 +41,11 @@
       <label><input type="checkbox" data-layer="rings"> RANGE RINGS</label>
       <label><input type="checkbox" data-layer="scale"> NM SCALE</label>
       <label><input type="checkbox" data-layer="milzoom"> MIL AUTO-ZOOM</label>
+      <label><input type="checkbox" data-layer="maplabels"> MAP LABELS</label>
+      <div id="basemap-row">
+        <label for="basemap-select">BASEMAP</label>
+        <select id="basemap-select" title="All of these are keyless. If one stops serving tiles, switch here."></select>
+      </div>
       <div id="alt-legend">
         <span class="t">ALTITUDE</span>
         <div class="ramp"><i></i><i></i><i></i><i></i><i></i></div>
@@ -102,6 +107,7 @@
     </div>
   </main>
   <script src="/vendor/leaflet.js"></script>
+  <script src="/basemaps.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

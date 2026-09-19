@@ -148,7 +148,10 @@ function normalize(raw) {
       // nose heading: surface targets usually stop broadcasting track below
       // taxi speed but keep sending true_heading — used for icon orientation
       hdg: ac.true_heading ?? null,
-      vr: ac.baro_rate ?? ac.geom_rate ?? 0,
+      // null, not 0. A missing vertical rate is not level flight, and the
+      // display draws a "→" for zero — see the groundspeed note below, which
+      // is the same mistake this used to make.
+      vr: ac.baro_rate ?? ac.geom_rate ?? null,
       category: ac.category || null,
       heli,
       // dbFlags bit 1 = military per readsb db; ae-prefix hex = US military
@@ -239,17 +242,57 @@ const clients = new Set();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Upstream backoff. Both feeds are community-run, keyless and free, and both
+// answer a client that will not stop with 429 or 403. Retrying a rate-limit
+// every 3 s is how a polite client becomes a blocked one — and the failover
+// below made it worse, alternating between two sources at full cadence while
+// both were refusing. So a failing upstream gets room: double the wait each
+// time, cap it, honour Retry-After when the server names a number, and count
+// the streak ACROSS sources so switching does not reset the pressure.
+const BACKOFF_CAP_MS = 5 * 60 * 1000;
+let failStreak = 0;
+let backoffUntil = 0;
+// A deliberate user action — moving home, changing bandwidth mode — is not a
+// retry loop, and must not be swallowed by a wait that an upstream's rate
+// limit imposed. One extra request is not what gets a client blocked; a 403
+// carrying Retry-After: 300 silently eating a SET HOME for five minutes while
+// the panel reports success is a much worse trade.
+function clearFeedBackoff() {
+  failStreak = 0;
+  backoffUntil = 0;
+}
+function noteFeedFailure(retryAfterMs) {
+  failStreak++;
+  const stepped = pollBaseMs * 2 ** Math.min(failStreak, 7);
+  const wait = Math.max(retryAfterMs || 0, Math.min(stepped, BACKOFF_CAP_MS));
+  // Jitter, so two Overheads on the same street do not resynchronise onto the
+  // same upstream second every time they are both throttled.
+  backoffUntil = Date.now() + Math.round(wait * (0.85 + Math.random() * 0.3));
+  return backoffUntil - Date.now();
+}
+
+// Home is a house. The feeds only need "within N nm of a point" — N being 87
+// — so handing a third party seven decimal places of it every few seconds is
+// sub-metre precision nobody asked for and nobody needs. Three decimals is
+// ~110 m, which cannot move a single aircraft in or out of an 87 nm circle.
+const coarse = (deg) => Math.round(deg * 1000) / 1000;
+
 // The display promises coverage up to 100 statute miles around home — clamp
 // the feed query to that (in nm) no matter what config says. /config serves
 // this EFFECTIVE value so client coverage math can never diverge from it.
 const RADIUS_NM = Math.min(config.radius_nm, Math.round(100 * 0.868976));
 
 async function fetchRegion(src, lat, lon, radiusNm) {
-  const res = await fetch(`${src.base}/${lat}/${lon}/${radiusNm}`, {
+  const res = await fetch(`${src.base}/${coarse(lat)}/${coarse(lon)}/${radiusNm}`, {
     signal: AbortSignal.timeout(8000),
     headers: { Accept: 'application/json', 'User-Agent': 'overhead-tracker (github.com/Diastro/overhead)' },
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status}`);
+    const after = Number(res.headers.get('retry-after'));
+    if (Number.isFinite(after) && after > 0) err.retryAfterMs = Math.min(after * 1000, BACKOFF_CAP_MS);
+    throw err;
+  }
   const text = await res.text();
   // Prefer Content-Length: that's compressed wire bytes (the feed gzips);
   // fall back to decompressed size when the header is absent.
@@ -257,11 +300,23 @@ async function fetchRegion(src, lat, lon, radiusNm) {
   const wireBytes = Number.isFinite(clen) && clen > 0 ? clen : Buffer.byteLength(text);
   feedBytes += wireBytes;
   addUsage(wireBytes);
-  return JSON.parse(text).ac || [];
+  // The same guard usableAirspace() applies to ArcGIS, for the same reason: a
+  // 200 is not proof the server answered the question. `.ac || []` turned any
+  // 200 without an aircraft array — an error body, an HTML captive portal, a
+  // changed schema — into a confident empty sky, which the display draws as
+  // "QUIET SKY" and nobody can tell from a real one. An empty `ac: []` is a
+  // legitimate answer and still passes.
+  const body = JSON.parse(text);
+  if (!Array.isArray(body.ac)) throw new Error('HTTP 200 without an aircraft array');
+  return body.ac;
 }
 
 async function poll(kind = 'full') {
   if (pollInFlight) return;
+  // Every caller goes through here — the scheduler, a client attaching, a new
+  // home — so this is the one place the backoff has to hold. A kiosk that
+  // reloads in a loop must not walk straight past it.
+  if (Date.now() < backoffUntil) return;
   pollInFlight = true;
   try {
     await pollOnce(kind);
@@ -287,7 +342,10 @@ function nextScanAt() {
       if (fires) break;
     }
   }
-  return lastTickAt + k * pollBaseMs;
+  // While backing off, the next scan is when the backoff lifts, not when the
+  // tick pattern next fires — otherwise the display counts down to a scan
+  // that poll() is going to refuse, and keeps doing it.
+  return Math.max(lastTickAt + k * pollBaseMs, backoffUntil);
 }
 
 function scheduledPoll() {
@@ -355,6 +413,8 @@ async function pollOnce(kind) {
     const aircraft = normalize(ac);
     lastSuccessAt = Date.now();
     consecutiveFailures = 0;
+    failStreak = 0;
+    backoffUntil = 0;
     lastPayload = {
       now: lastSuccessAt,
       source: src.name,
@@ -370,7 +430,11 @@ async function pollOnce(kind) {
     broadcast(lastPayload);
   } catch (err) {
     consecutiveFailures++;
-    console.error(`[feed] ${src.name} failed (${err.message}), failures=${consecutiveFailures}`);
+    const waitMs = noteFeedFailure(err.retryAfterMs);
+    console.error(
+      `[feed] ${src.name} failed (${err.message}), failures=${consecutiveFailures}, ` +
+      `next attempt in ${Math.round(waitMs / 1000)}s`
+    );
     if (consecutiveFailures >= 2) {
       sourceIdx = (sourceIdx + 1) % SOURCES.length;
       console.error(`[feed] switching to ${SOURCES[sourceIdx].name}`);
@@ -632,7 +696,7 @@ const server = http.createServer(async (req, res) => {
         if (!BW_MODES.has(mode)) throw new Error('bad mode');
         bwMode = mode;
         console.log(`[feed] bandwidth mode: ${mode}`);
-        if (mode === 'high') poll('full');
+        if (mode === 'high') { clearFeedBackoff(); poll('full'); }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, bandwidthMode: bwMode }));
       } catch {
@@ -687,6 +751,7 @@ const server = http.createServer(async (req, res) => {
           config.home.lat = lat;
           config.home.lon = lon;
           console.log(`[home] moved (${explicit ? 'explicit' : 'reassert'}, in-memory only)`);
+          clearFeedBackoff(); // the sky around the OLD home is now simply wrong
           poll(); // refresh the sky around the new home right away
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -150,25 +150,118 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (!wheelRaf) wheelRaf = requestAnimationFrame(wheelStep);
   }, { passive: false });
 
-  const TILE_URLS = {
-    dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    light: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-  };
-  const TILE_OPTS = {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    subdomains: 'abcd',
-    maxZoom: 19,
-  };
-  let tiles = L.tileLayer(TILE_URLS.dark, TILE_OPTS).addTo(map);
-  let tilesUrl = TILE_URLS.dark;
-  // Swap by replacing the layer: setUrl() at fractional zoom (zoomSnap 0.1)
-  // leaves the redrawn tiles untransformed — invisible until the map moves.
-  function setTiles(url) {
-    if (url === tilesUrl) return;
-    tilesUrl = url;
-    const old = tiles;
-    tiles = L.tileLayer(url, TILE_OPTS).addTo(map);
-    setTimeout(() => old.remove(), 400); // let the new layer paint first
+  // ------------------------------------------------------------- basemap
+  // The provider list lives in web/basemaps.js (shared with the smoke test).
+  // `carto_key` is optional and only ever comes from config.local.json; with
+  // no key the app is entirely keyless, which is the point.
+  // A basemap is decoration; the scope is the product. If basemaps.js fails
+  // to load, fall back to a hardcoded OSM entry rather than throwing on line
+  // one and taking the aircraft display down with it.
+  const basemapList = (typeof BASEMAPS === 'object' && BASEMAPS)
+    ? BASEMAPS.providers(config.carto_key)
+    : [{
+        id: 'osm', label: 'OPENSTREETMAP', note: 'fallback — basemaps.js did not load',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19, maxNativeZoom: 19,
+        dark: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                filter: 'invert(1) hue-rotate(180deg) saturate(.2) brightness(.55) contrast(1.2)' },
+        light: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                 filter: 'saturate(.45) brightness(1.06) contrast(.96)' },
+      }];
+  let basemapId = localStorage.getItem('overhead-basemap');
+  if (!basemapList.some((p) => p.id === basemapId)) basemapId = basemapList[0].id;
+  let themeName = 'dark';
+  let tileLayers = [];            // [base] or [base, labels]
+  const basemapTried = new Set(); // providers an automatic failover already burned
+
+  function currentBasemap() {
+    return basemapList.find((p) => p.id === basemapId) || basemapList[0];
+  }
+
+  // Swap by replacing the layer rather than setUrl(): at fractional zoom
+  // (zoomSnap 0.1) setUrl leaves the redrawn tiles untransformed, so they are
+  // invisible until the map next moves.
+  function applyBasemap() {
+    const provider = currentBasemap();
+    const spec = provider[themeName] || provider.dark;
+    const opts = {
+      maxZoom: provider.maxZoom,
+      // Beyond a provider's real data, Leaflet upscales its last good tile
+      // rather than requesting levels the service answers with a placeholder.
+      maxNativeZoom: provider.maxNativeZoom ?? provider.maxZoom,
+      attribution: provider.attribution,
+    };
+    const next = [L.tileLayer(spec.url, opts)];
+    // Esri ships its place names as a separate transparent layer. That is a
+    // second tile request per view, which a Pi on rural Wi-Fi feels, so it is
+    // a switch rather than an assumption — but it defaults on, because a map
+    // with no city names is a map of nowhere.
+    if (spec.labels && layers.maplabels) {
+      next.push(L.tileLayer(spec.labels, { ...opts, attribution: '' }));
+    }
+    // The filter goes on each layer's own container, not on the shared tile
+    // pane. On the pane it also hit the outgoing layer during the deliberate
+    // 400 ms crossfade below, so every switch flashed the OLD provider's
+    // tiles through the NEW provider's recipe — briefly inverting the whole
+    // wall to white on the way into the OSM theme.
+    next.forEach((l) => {
+      l.addTo(map);
+      const el = l.getContainer();
+      if (el) el.style.filter = spec.filter || 'none';
+    });
+    watchBasemap(next[0], provider);
+    const old = tileLayers;
+    tileLayers = next;
+    setTimeout(() => old.forEach((l) => l.remove()), 400); // let the new layer paint first
+    const sel = document.getElementById('basemap-select');
+    if (sel) sel.value = provider.id;
+    const labelBox = layerBoxes.find((b) => b.dataset.layer === 'maplabels');
+    if (labelBox) {
+      labelBox.disabled = !spec.labels;
+      labelBox.closest('label').title = spec.labels
+        ? 'Place names as a separate tile layer — off halves this basemap\'s tile requests'
+        : `${provider.label} bakes its labels into the basemap — nothing to toggle`;
+    }
+  }
+
+  function setBasemap(id, persist = true) {
+    if (!basemapList.some((p) => p.id === id)) return;
+    basemapId = id;
+    if (persist) {
+      localStorage.setItem('overhead-basemap', id);
+      basemapTried.clear(); // a deliberate choice re-arms automatic failover
+    }
+    applyBasemap();
+  }
+
+  // A provider that starts refusing tiles should cost a glance, not a debug
+  // session. This catches the honest failures — 403, 404, DNS, a withdrawn
+  // service. It cannot catch a provider that keeps answering 200 with a
+  // different picture, which is exactly how CARTO withdrew its keyless
+  // basemaps in Aug 2026: the tiles kept arriving with "API KEY REQUIRED"
+  // painted across them and nothing errored. That one needs the eye, and the
+  // picker below is how you fix it in a second.
+  function watchBasemap(layer, provider) {
+    // A window, not a running total. The count used to live for the life of
+    // the layer, so six dropped tiles spread over days — ordinary weather on
+    // a 24/7 panel — eventually declared a provider that was working fine
+    // "UNREACHABLE". An outage delivers its errors together.
+    const ERR_WINDOW_MS = 30000;
+    let errorsAt = [];
+    layer.on('tileerror', () => {
+      const now = Date.now();
+      errorsAt.push(now);
+      errorsAt = errorsAt.filter((t) => now - t < ERR_WINDOW_MS);
+      if (errorsAt.length !== 6) return; // one dropped tile is weather, not a policy change
+      basemapTried.add(provider.id);
+      const next = basemapList.find((p) => !basemapTried.has(p.id));
+      if (!next) {
+        flashAlert('NO BASEMAP REACHABLE — SCOPE IS LIVE, MAP IS NOT');
+        return;
+      }
+      flashAlert(`${provider.label} BASEMAP UNREACHABLE — SWITCHED TO ${next.label}`);
+      setBasemap(next.id, false); // an outage must not overwrite a deliberate choice
+    });
   }
 
   if (EMBED) document.body.classList.add('embed');
@@ -568,7 +661,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // with the layers because that is where the AIRPORTS switch is — and it only
   // means anything when airports are drawn. ICAO is the default: it is what
   // charts and controllers use, and it is the only system every field has.
-  const LAYER_DEFAULTS = { aircraft: true, trails: true, blocks: true, airports: false, airspace: false, rings: true, scale: true, milzoom: true, icao: true };
+  const LAYER_DEFAULTS = { aircraft: true, trails: true, blocks: true, airports: false, airspace: false, rings: true, scale: true, milzoom: true, icao: true, maplabels: true };
   let layers = { ...LAYER_DEFAULTS };
   try {
     layers = { ...LAYER_DEFAULTS, ...JSON.parse(localStorage.getItem('overhead-layers') || '{}') };
@@ -632,6 +725,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const box = layerBoxes.find((b) => b.dataset.layer === name);
     if (box) box.checked = next;
     localStorage.setItem('overhead-layers', JSON.stringify(layers));
+    if (name === 'maplabels') applyBasemap();
     if (name === 'airports' && next && !airports.length) loadAirports();
     if (name === 'airspace') {
       if (next) {
@@ -646,6 +740,19 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     box.checked = !!layers[box.dataset.layer];
     box.addEventListener('change', () => setLayer(box.dataset.layer, box.checked));
   });
+  // Basemap picker. It sits with the layers because that is where every
+  // other "what is drawn" switch lives.
+  const basemapSelect = document.getElementById('basemap-select');
+  basemapList.forEach((p) => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.label;
+    opt.title = p.note;
+    basemapSelect.appendChild(opt);
+  });
+  basemapSelect.value = currentBasemap().id;
+  basemapSelect.addEventListener('change', () => setBasemap(basemapSelect.value));
+
   layersToggle.addEventListener('click', () => {
     const open = layersPanel.classList.toggle('open');
     layersToggle.classList.toggle('open', open);
@@ -1783,7 +1890,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     COLORS = THEMES[name] || THEMES.dark;
     paintAltLegend();
     document.body.classList.toggle('light', name === 'light');
-    setTiles(TILE_URLS[name] || TILE_URLS.dark);
+    themeName = name === 'light' ? 'light' : 'dark';
+    applyBasemap();
     themeToggle.textContent = name === 'light' ? '☀' : '☾';
     stripeCache = {}; // livery patterns bake theme colors — rebuild lazily
     localStorage.setItem('overhead-theme', name);
@@ -1817,11 +1925,17 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       const shown = fmtAlt(t.fix.alt);
       if (shown == null) alt = `ALT ${NO_DATA}`;
       else {
-        // structured so the trend arrow can carry its own color
-        const vs = t.fix.vr > 250 ? 'up' : t.fix.vr < -250 ? 'down' : 'flat';
+        // structured so the trend arrow can carry its own color.
+        // A missing vertical rate gets no arrow at all. The feed simply does
+        // not always carry one, and "→" is a claim — it says the aircraft
+        // is holding its altitude. This is the same distinction the fix above
+        // draws for groundspeed: an absent field must never be rendered as a
+        // confirmed zero.
+        const vs = !Number.isFinite(t.fix.vr) ? 'unknown'
+          : t.fix.vr > 250 ? 'up' : t.fix.vr < -250 ? 'down' : 'flat';
         alt = {
-          pre: shown + '  ',
-          arrow: vs === 'up' ? '↑' : vs === 'down' ? '↓' : '→',
+          pre: shown + (vs === 'unknown' ? '' : '  '),
+          arrow: vs === 'up' ? '↑' : vs === 'down' ? '↓' : vs === 'flat' ? '→' : '',
           vs,
           post: '',
         };
@@ -2631,6 +2745,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     airports: (on) => setLayer('airports', on),
     airspace: (on) => setLayer('airspace', on),
     icao: (on) => setLayer('icao', on),
+    maplabels: (on) => setLayer('maplabels', on),
+    basemap: (id) => setBasemap(id),
     list: () => listToggle.click(),
     settings: () => bwEl.click(),
   };
@@ -2651,6 +2767,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     clock: document.getElementById('clock'),
     count: document.getElementById('count'),
     overhead: document.getElementById('overhead-count'),
+    overheadStat: document.getElementById('overhead-stat'),
     dot: document.getElementById('feed-dot'),
     feed: document.getElementById('feed-name'),
     nextScan: document.getElementById('next-scan'),
@@ -2668,6 +2785,16 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   function updateBar(overheadCount) {
     setText(el.count, 'count', String(targets.size));
     setText(el.overhead, 'overhead', String(overheadCount));
+    // "Something is overhead right now" is the whole point of the product, and
+    // it used to be styled exactly like the total-aircraft count beside it —
+    // indistinguishable from four metres away, which is the only distance this
+    // display is ever read from. Amber is already the app's word for overhead
+    // (the data blocks use it), so the header now speaks the same language.
+    const anyOverhead = overheadCount > 0;
+    if (cached.overheadOn !== anyOverhead) {
+      cached.overheadOn = anyOverhead;
+      el.overheadStat.classList.toggle('active', anyOverhead);
+    }
     const stale = Date.now() - feedState.lastOkAt;
     const [warnMs, badMs] = STALE_MS[bwMode] || STALE_MS.high;
     const cls = feedState.lastOkAt === 0 ? '' : stale < warnMs ? 'ok' : stale < badMs ? 'warn' : 'bad';

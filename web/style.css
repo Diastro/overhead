@@ -8,7 +8,10 @@ body {
   --bar-bg: #05080d;
   --bar-ink: #a8bed2;
   --bar-bright: #eef5fb;
-  --muted: #5b7086;
+  /* 4.79:1 on --stage-bg, 5.19:1 on --bar-bg. The old #5b7086 measured
+     3.62:1 and 3.92:1 — under AA for the 9-11px type that actually uses
+     it, and this display is read from four metres, not forty centimetres. */
+  --muted: #6d849c;
   --accent: #38bdff;
   --ok: #22df82;
   --warn: #f0a81c;
@@ -24,13 +27,14 @@ body {
   --police: #4d82ff;
 }
 body.light {
-  /* deep saturated inks over warm ivory — pairs with the Voyager basemap
-     without going pastel */
+  /* deep saturated inks over warm ivory — sized to sit on a pale grey
+     canvas basemap (see web/basemaps.js) without going pastel */
   --stage-bg: #cfe0e8;
   --bar-bg: #fbf7ee;
   --bar-ink: #5a626d;
   --bar-bright: #222d38;
-  --muted: #847f72;
+  /* 5.04:1 on --bar-bg; the old #847f72 measured 3.73:1. */
+  --muted: #6f6a5e;
   --accent: #0a7fd9;
   --ok: #12a35c;
   --warn: #e07f00;
@@ -82,6 +86,18 @@ body { background: var(--stage-bg); }
 #bar .brand { color: var(--bar-bright); font-weight: 700; letter-spacing: 0.22em; }
 #bar .brand span { color: var(--accent); }
 #bar .stat b { color: var(--bar-bright); font-weight: 600; }
+/* An aircraft actually overhead is the one thing this display exists to tell
+   you. It gets the app's overhead colour and a little weight, so it reads from
+   across the room rather than only when you walk up to the screen. */
+#overhead-stat.active, #overhead-stat.active b { color: var(--warn); }
+#overhead-stat.active b { font-weight: 700; }
+/* --warn is tuned for dots and map ink, where it sits on dark. On the light
+   theme's ivory bar it measures 2.73:1 as 13px text — worse than the --muted
+   value this same change set darkened for exactly this reason. This is the
+   one place --warn becomes body text, so it gets a deeper amber here: 5.33:1,
+   and still unmistakably the overhead colour. */
+body.light #overhead-stat.active,
+body.light #overhead-stat.active b { color: #9c5400; }
 #bar .brand { justify-self: start; }
 #bar .center { justify-self: center; }
 #bar .right { display: inline-flex; align-items: center; gap: 14px; justify-self: end; }
@@ -124,17 +140,13 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
   inset: 0;
   background: var(--stage-bg);
 }
-/* Lift the dark basemap's road/shoreline lines a touch — multiplicative
-   brightness barely moves the near-black ground but makes outlines pop. */
-/* CARTO's dark tiles sit almost entirely below mid-grey, so raising CONTRAST
-   is exactly wrong here: it pivots on mid-grey and crushes the coastline, the
-   freeway network and the admin-boundary dashes into the background. Lifting
-   the shadows instead — brightness up, contrast slightly DOWN — separates land
-   from water and brings out the borders CARTO already draws but that were lost
-   in the black. Saturation gives the water back its blue so the coast reads as
-   a coast rather than as a value change. */
-#map .leaflet-tile-pane { filter: brightness(2) contrast(.9) saturate(1.25); }
-body.light #map .leaflet-tile-pane { filter: none; }
+/* The correction a basemap needs belongs to its cartography, not to the theme:
+   CARTO's dark tiles sat below mid-grey and had to be lifted, Esri's dark
+   canvas is a mid-grey that has to be pushed down, and OSM has to be drained
+   of most of its colour before a scope can sit on top of it. Each provider in
+   web/basemaps.js carries its own recipe per theme, and applyBasemap() puts it
+   on that layer's OWN container — a filter on the shared pane also caught the
+   outgoing layer mid-crossfade and flashed it through the wrong recipe. */
 #scope {
   position: absolute;
   inset: 0;
@@ -274,6 +286,39 @@ body.light #map .leaflet-tile-pane { filter: none; }
 
 /* Altitude ramp legend — the target colors now encode height, so the key
    for reading them belongs on the glass next to the layer switches. */
+/* The basemap picker reads as a row, not as a switch, so it opts out of the
+   reversed label layout the toggles above it use. */
+#basemap-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--panel-line);
+}
+#basemap-row label { padding: 0; cursor: default; }
+#basemap-select {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 1px solid var(--input-border);
+  border-radius: 3px;
+  background: var(--input-bg);
+  color: var(--bar-ink);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+/* A switch for something this basemap does not have would be a dead control.
+   Dimming only the switch graphic left the row's label at full brightness, so
+   from across the room it read as "on, but dim" rather than "not applicable"
+   — and the explanation was in a tooltip, which a wall panel has no mouse to
+   summon. Dim the whole row instead. */
+#layers-panel input:disabled { opacity: 0.35; cursor: not-allowed; }
+#layers-panel label:has(input:disabled) { cursor: not-allowed; color: var(--muted); }
+
 #alt-legend {
   margin-top: 4px;
   padding: 9px 14px 3px;
