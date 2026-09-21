@@ -15,6 +15,13 @@
 // app: CARTO's dark tiles sat almost entirely below mid-grey and had to be
 // lifted, Esri's "dark" canvas is a mid-grey that has to be pushed down, and
 // OSM has no dark tiles at all, so its dark theme is derived here.
+//
+// The correction also has to land the map in the app's own hue family. The
+// chrome is slate navy throughout — --stage-bg 209°, --panel-border 208°,
+// the accent cyan 199° — and a basemap that is a different blue from the
+// chrome reads as two systems sharing a screen rather than one display. A
+// provider's own bias is not a starting point to preserve; it is the thing
+// being corrected, the same as its brightness.
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -66,7 +73,25 @@
         // than a change of shade. Measured land #333848, p50 61 (was 29),
         // land/water dE 36.4 (was 18.8 — nearly double), and every ink still
         // clears its bar on the lighter land (aircraft 5.5:1).
-        filter: 'brightness(1.7) contrast(1.6) brightness(.46) saturate(6.5) hue-rotate(-12deg)',
+        //
+        // What saturate() amplifies, though, is Esri's hue and not ours: its
+        // greys carry a faint violet bias (raw land #4e4e50, water #232227),
+        // so a 6.5x stretch landed the map at 227°/237° — an indigo next to
+        // an app that is slate navy everywhere else. The tail rotation is
+        // what fixes that, and at -34° it costs nothing: a hue rotation at
+        // constant luminance moved all seventeen on-map inks by =<0.03 (icon
+        // 5.01 -> 4.99, ring 2.83 -> 2.82), land luma 54 -> 53 so the lift
+        // above survives, and land/water dE 27.3 against 28.2. Measured land
+        // #2c3742 at 210°, against --stage-bg's 209°.
+        filter: 'brightness(1.7) contrast(1.6) brightness(.46) saturate(6.5) hue-rotate(-34deg)',
+        // Esri ships the reference layer as plain artwork, and unfiltered it
+        // put place names on the wall as neutral white at luma 201 — brighter
+        // than every map ink except the overhead block, for text that is
+        // context rather than data. Tinted into the same slate as the ring
+        // labels and knocked back: #c8c9cb (220°, sat 1%, L 201) becomes
+        // #9fb2c2 (207°, sat 18%, L 175), still 4.85:1 on the brightest land
+        // this provider draws and 5.55:1 on its usual land.
+        labelsFilter: 'sepia(.7) hue-rotate(180deg) saturate(1.2) brightness(.76)',
       },
       light: {
         url: esri('Canvas/World_Light_Gray_Base'),
@@ -74,7 +99,18 @@
         // The mirror problem: a light basemap sits near luma 0.80, so raising
         // contrast pushes it to flat white. Centre the range first, stretch,
         // then put it back. Measured land/water dE 22.8 (was 15.4).
-        filter: 'brightness(.62) contrast(1.8) brightness(1.5) saturate(1.6)',
+        //
+        // The light theme needed the opposite tool from the dark one. Esri's
+        // light land comes out chroma-zero (#ebebeb), and saturate() cannot
+        // tint that at all — multiplying zero chroma leaves zero. It takes
+        // sepia() to put a hue there, and the hue to put there is the ivory
+        // the chrome is built from (--bar-bg 40°, --panel-line 39°), not the
+        // neutral of a generic map. The rotation is for the water, which was
+        // a lilac #c4c1ce at 254°; it lands at 188°, the cool blue-grey of
+        // --stage-bg. Measured land #f0ece3 (42°, L 236 against 235 before,
+        // so no ink lost ground — every one gained ~0.06), water #b8c6c8,
+        // land/water dE 16.9 (was 16.0).
+        filter: 'brightness(.62) contrast(1.8) brightness(1.46) hue-rotate(-55deg) saturate(3) sepia(.14)',
       },
     },
     {
@@ -99,6 +135,17 @@
         // 9-10:1 against pure black with headroom to spare.
         // Measured: p50 20 (was 2), land/water 3.57:1 (was 1.74), aircraft ink
         // 9.71:1 (was 9.89).
+        //
+        // This one is deliberately NOT rotated into the app's blue, unlike
+        // every Esri theme here. OSM separates land from water by hue and
+        // barely by value — raw land and water measure luma 200 and 203 — and
+        // after the invert the two sit about 170° apart, so any rotation that
+        // carries the land to 209° carries the water to about 19° and paints
+        // the Sound brown. Draining the colour first and tinting the result
+        // is worse still: every duotone tried collapsed land against water to
+        // dE ~2.5, which erases the coastline through exactly the urban areas
+        // the display is pointed at. A neutral land that keeps its shoreline
+        // beats a family-coloured one that loses it.
         filter: 'invert(1) hue-rotate(180deg) saturate(.22) brightness(.85) contrast(1.15)',
       },
       light: {
@@ -132,15 +179,19 @@
       layers: [
         { url: esri('Elevation/World_Hillshade'), filter: 'invert(1) brightness(.5) contrast(1.1)' },
         { url: esri('Canvas/World_Dark_Gray_Base'),
-          filter: 'brightness(.9) contrast(1.3) saturate(6) hue-rotate(-12deg)',
+          // Same cartography as the default provider, so the same violet bias
+          // and the same -34° correction; screening it over the hillshade
+          // does not change which hue is being amplified.
+          filter: 'brightness(.9) contrast(1.3) saturate(6) hue-rotate(-34deg)',
           blend: 'screen', opacity: 0.85 },
       ],
       labels: esri('Canvas/World_Dark_Gray_Reference'),
+      labelsFilter: 'sepia(.7) hue-rotate(180deg) saturate(1.2) brightness(.76)',
     },
     light: {
       layers: [
         { url: esri('Canvas/World_Light_Gray_Base'),
-          filter: 'brightness(.62) contrast(1.8) brightness(1.5) saturate(1.6)' },
+          filter: 'brightness(.62) contrast(1.8) brightness(1.46) hue-rotate(-55deg) saturate(3) sepia(.14)' },
         { url: esri('Elevation/World_Hillshade'), filter: 'contrast(1.3)',
           blend: 'multiply', opacity: 0.6 },
       ],
