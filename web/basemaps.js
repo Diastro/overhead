@@ -17,8 +17,8 @@
 // OSM has no dark tiles at all, so its dark theme is derived here.
 //
 // The correction also has to land the map in the app's own hue family. The
-// chrome is slate navy throughout — --stage-bg 209°, --panel-border 208°,
-// the accent cyan 199° — and a basemap that is a different blue from the
+// chrome is slate navy throughout — --stage-bg 213°, --panel-border 210°,
+// the accent cyan 200° — and a basemap that is a different blue from the
 // chrome reads as two systems sharing a screen rather than one display. A
 // provider's own bias is not a starting point to preserve; it is the thing
 // being corrected, the same as its brightness.
@@ -82,16 +82,45 @@
         // constant luminance moved all seventeen on-map inks by =<0.03 (icon
         // 5.01 -> 4.99, ring 2.83 -> 2.82), land luma 54 -> 53 so the lift
         // above survives, and land/water dE 27.3 against 28.2. Measured land
-        // #2c3742 at 210°, against --stage-bg's 209°.
+        // #2c3742 at 210°, against --stage-bg's 213°.
+        //
+        // The rotation is not quite luminance-neutral at the gamut wall — it
+        // lifted the water two luma, costing the coastline ~11% of its raw
+        // ratio in the dim room this panel actually lives in. Trimming the
+        // trailing brightness to .45 was tried as the payback and does not
+        // work: the water is already clamped at the floor (R pinned to 0), so
+        // it cannot follow the land down, and the land alone dropping a luma
+        // took measured land/water from 1.61:1 to 1.59:1 — the wrong way. A
+        // uniform multiply cannot separate two values one of which is already
+        // at the gamut wall. Left where it is.
         filter: 'brightness(1.7) contrast(1.6) brightness(.46) saturate(6.5) hue-rotate(-34deg)',
         // Esri ships the reference layer as plain artwork, and unfiltered it
-        // put place names on the wall as neutral white at luma 201 — brighter
-        // than every map ink except the overhead block, for text that is
-        // context rather than data. Tinted into the same slate as the ring
-        // labels and knocked back: #c8c9cb (220°, sat 1%, L 201) becomes
-        // #9fb2c2 (207°, sat 18%, L 175), still 4.85:1 on the brightest land
-        // this provider draws and 5.55:1 on its usual land.
-        labelsFilter: 'sepia(.7) hue-rotate(180deg) saturate(1.2) brightness(.76)',
+        // put place names on the wall louder than the aircraft: 5.87:1 on the
+        // usual land against the icon's 5.80:1, for text that is context
+        // rather than data. Knocking them back is right and this does it —
+        // 5.57:1, just under the icon.
+        //
+        // What is deliberately NOT done here is the rotation the land gets.
+        // The first version of this filter carried the labels to 207°, which
+        // is where the app's own data inks live, and landed them on top of
+        // ringText — dE 4.2, near enough to read as the same ink, with
+        // `airport` drawing ICAO codes as text 7 away. A dichromat had no
+        // recovery at all: every one of those sits in a 205-212° band, so the
+        // simulations move them together and the only surviving cue was the
+        // lightness this filter had just spent. Land and water are large
+        // fields with nothing to collide with, so the family argument holds
+        // for them; labels compete with data text and it does not. A faint
+        // warm cast is the one direction nothing else on the scope uses:
+        // #b1aea8 at sat 5% — cartography, not another slate readout — and dE
+        // from the nearest data ink goes 4.2 -> 16.6.
+        //
+        // Measured against the halo Esri draws around each glyph, which is
+        // what these labels are actually read against and what survives on
+        // bright urban fill: 7.59:1. Against the land alone they run 2.9-3.5:1
+        // on urban fill, where the land's own p99 reaches L84 — that number
+        // was never 4.5 in any version of this file, including before any
+        // filter existed, and the halo is why the labels are legible anyway.
+        labelsFilter: 'sepia(.22) saturate(.7) brightness(.86)',
       },
       light: {
         url: esri('Canvas/World_Light_Gray_Base'),
@@ -111,6 +140,26 @@
         // so no ink lost ground — every one gained ~0.06), water #b8c6c8,
         // land/water dE 16.9 (was 16.0).
         filter: 'brightness(.62) contrast(1.8) brightness(1.46) hue-rotate(-55deg) saturate(3) sepia(.14)',
+        // No labelsFilter here, and that is a decision rather than the
+        // oversight it looks like. The dark theme's one is safe because its
+        // halo is dark; Esri draws the LIGHT reference layer as near-black
+        // glyphs inside a near-white halo, and any value transform that
+        // quiets the glyph lifts that halo into the clamp, where it eats the
+        // letter's anti-aliased edge from the outside in. Measured on the
+        // real tile over this land: brightness(1.9) sepia(.3) took the ink
+        // footprint 707 px -> 585, pixels clearing 4.5:1 308 -> 158, median
+        // 3.10:1 -> 2.27:1, while halo pixels grew 276 -> 397 — place names
+        // rendered as hollow outlines, worst on the small ones. opacity(.72)
+        // keeps the footprint (703 px) but drags the whole distribution down
+        // instead (median 2.15:1). Both were tried and both reverted.
+        //
+        // So the hierarchy complaint against this layer stands unfixed: its
+        // darkest ink is heavier than the aircraft icon. It is a peak, not
+        // the body of the glyph (median 3.10:1 against the icon's 5.75:1),
+        // and it cannot be quieted from here without costing legibility that
+        // matters more. Fixing it properly means not lifting the glyph at all
+        // — a lighter reference layer, or labels drawn by the app rather than
+        // the provider.
       },
     },
     {
@@ -140,7 +189,7 @@
         // every Esri theme here. OSM separates land from water by hue and
         // barely by value — raw land and water measure luma 200 and 203 — and
         // after the invert the two sit about 170° apart, so any rotation that
-        // carries the land to 209° carries the water to about 19° and paints
+        // carries the land to 213° carries the water to about 19° and paints
         // the Sound brown. Draining the colour first and tinting the result
         // is worse still: every duotone tried collapsed land against water to
         // dE ~2.5, which erases the coastline through exactly the urban areas
@@ -186,7 +235,7 @@
           blend: 'screen', opacity: 0.85 },
       ],
       labels: esri('Canvas/World_Dark_Gray_Reference'),
-      labelsFilter: 'sepia(.7) hue-rotate(180deg) saturate(1.2) brightness(.76)',
+      labelsFilter: 'sepia(.22) saturate(.7) brightness(.86)',
     },
     light: {
       layers: [
@@ -196,6 +245,7 @@
           blend: 'multiply', opacity: 0.6 },
       ],
       labels: esri('Canvas/World_Light_Gray_Reference'),
+      // No labelsFilter, for the reason recorded on the esri light theme.
     },
   };
 
