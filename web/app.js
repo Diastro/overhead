@@ -2465,9 +2465,32 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // a sticky side that would run the block off the edge.
   const blockSide = new Map(); // hex -> 'r' | 'l'
   const SIDE_HYST = 60;        // px past centre before the preferred side flips
+  // On-glass controls a data block must not slide under: the overhead chip,
+  // alert banner, VIEW control, corner buttons and any open panel. Measured
+  // at most twice a second — layout does not move between frames.
+  const GLASS_IDS = ['overhead-chip', 'alert-banner', 'range-ctl', 'stage-controls', 'layers-toggle',
+    'layers-panel', 'list-panel', 'home-panel', 'find-panel', 'bw', 'bw-chart', 'wide-banner'];
+  let glassRects = [], glassAt = 0;
+  function glassObstacles() {
+    const now = performance.now();
+    if (now - glassAt < 500) return glassRects;
+    glassAt = now;
+    const origin = canvas.getBoundingClientRect();
+    glassRects = [];
+    for (const id of GLASS_IDS) {
+      const el = document.getElementById(id);
+      if (!el || !el.offsetParent) continue; // display:none
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      glassRects.push({ bx: r.left - origin.left, by: r.top - origin.top, w: r.width, h: r.height });
+    }
+    return glassRects;
+  }
   function placeBlocks(queue) {
     queue.sort((a, b) => a.rank - b.rank);
-    const placed = [];
+    // Seeded with the controls, so every candidate spot avoids them exactly
+    // as it avoids another block.
+    const placed = [...glassObstacles()];
     const overlaps = (a, b) =>
       a.bx < b.bx + b.w + 4 && a.bx + a.w + 4 > b.bx &&
       a.by < b.by + b.h + 4 && a.by + a.h + 4 > b.by;
