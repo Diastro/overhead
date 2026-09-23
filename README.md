@@ -160,6 +160,13 @@ rings and leader lines. Run it after changing a palette.
   aircraft whose current track will carry it over home within five minutes
   (`NEXT UAL1834 IN 1:06`). Embedded in a kiosk shell, where the header is
   hidden, the same line shows as a chip at the bottom of the map.
+- **Routes** — scheduled airline flights show where they are going
+  (`SLC → SEA`) at the foot of the data block, in the list and in the
+  overhead callout. Routes come from the public
+  [Virtual Radar Server standing data](https://github.com/vradarserver/standing-data)
+  (keyless; one small file per airline, cached in `data/routes/` for a week),
+  and a route is only shown if the aircraft is within 150 NM of it — flight
+  numbers get reused across legs, and a wrong route is worse than none.
 - **Today** — **⚙ SETTINGS** shows the day so far: aircraft seen (each
   once), how many came overhead, military, emergencies, the busiest hour,
   the most common type and the ones seen only once. The server keeps this

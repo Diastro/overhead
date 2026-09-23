@@ -210,6 +210,137 @@ function saveUsage() {
     console.error(`[usage] save failed: ${err.message}`);
   }
 }
+// ------------------------------------------------------------------ routes
+// Where a flight is going, from the Virtual Radar Server standing data: one
+// public CSV per airline (Callsign,Code,Number,AirlineCode,AirportCodes),
+// keyless and plain files on GitHub. Scheduled airline callsigns only
+// (ASA312, SKW3281) — a tail number has no published route. Each airline's
+// file is fetched the first time one of its flights appears, cached under
+// data/routes/ for a week, and never more than one request every 2 s; a
+// failed airline is left alone for an hour. The data is published schedules,
+// so a diverted or repositioning flight will show its planned route.
+const ROUTES_DIR = path.join(ROOT, 'data', 'routes');
+const ROUTE_URL = (code) =>
+  `https://raw.githubusercontent.com/vradarserver/standing-data/main/routes/schema-01/${code[0]}/${code}-all.csv`;
+const routeTables = new Map();  // airline → Map(callsign → "KSEA-KLAX")
+const routeFailedAt = new Map(); // airline → ms of the last failure
+const routeQueue = new Set();
+let routeBusy = false;
+function airlineOf(callsign) {
+  const m = /^([A-Z]{3})\d{1,4}[A-Z]?$/.exec(callsign || '');
+  return m ? m[1] : null;
+}
+function parseRoutes(text) {
+  const map = new Map();
+  for (const line of text.split('\n').slice(1)) {
+    const c = line.split(',');
+    if (c.length >= 5 && c[0] && c[4]) map.set(c[0].trim(), c[4].trim());
+  }
+  return map;
+}
+async function loadAirlineRoutes(code) {
+  const file = path.join(ROUTES_DIR, `${code}.csv`);
+  try {
+    const st = fs.statSync(file);
+    if (Date.now() - st.mtimeMs < 7 * 864e5) {
+      routeTables.set(code, parseRoutes(fs.readFileSync(file, 'utf8')));
+      return;
+    }
+  } catch { /* not cached yet */ }
+  const res = await fetch(ROUTE_URL(code), {
+    signal: AbortSignal.timeout(20000),
+    headers: { 'User-Agent': 'overhead (github.com/Diastro/overhead)' },
+  });
+  // 404 = the dataset has no file for this airline: cache an empty table so
+  // it is not asked again this week.
+  const text = res.status === 404 ? 'Callsign\n' : res.ok ? await res.text() : null;
+  if (text == null) throw new Error(`HTTP ${res.status}`);
+  fs.mkdirSync(ROUTES_DIR, { recursive: true });
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, text);
+  fs.renameSync(tmp, file);
+  routeTables.set(code, parseRoutes(text));
+}
+async function drainRouteQueue() {
+  if (routeBusy) return;
+  routeBusy = true;
+  try {
+    for (const code of routeQueue) {
+      routeQueue.delete(code);
+      try {
+        await loadAirlineRoutes(code);
+      } catch (err) {
+        routeFailedAt.set(code, Date.now());
+        console.error(`[routes] ${code} failed (${err.message})`);
+      }
+      await sleep(2000);
+    }
+  } finally {
+    routeBusy = false;
+  }
+}
+// Sync lookup for the poll path; unknown airlines are queued, not awaited.
+function routeFor(callsign) {
+  const code = airlineOf(callsign);
+  if (!code) return null;
+  const table = routeTables.get(code);
+  if (table) return table.get(callsign) || null;
+  if (Date.now() - (routeFailedAt.get(code) || 0) > 3600e3) {
+    routeQueue.add(code);
+    drainRouteQueue();
+  }
+  return null;
+}
+// Published schedules are not always this flight: Southwest reuses a
+// number across legs, so SWA2449 over Seattle came back as LGA → BNA. A route
+// is only shown when the aircraft is within ROUTE_SLACK_NM of it, measured
+// along each leg's great circle — which needs airport coordinates, so routes
+// wait until the OurAirports table is loaded (the airports layer uses the
+// same cached file).
+const ROUTE_SLACK_NM = 150;
+let airportIndex = null; // ident → { lat, lon, iata }
+function airportAt(ident) {
+  if (!airportIndex) {
+    if (!airportsData) { ensureAirports().catch(() => {}); return undefined; }
+    airportIndex = new Map(airportsData.map((a) => [a.ident, a]));
+  }
+  return airportIndex.get(ident) || null;
+}
+function nearRoute(lat, lon, stops) {
+  const r = Math.PI / 180;
+  for (let i = 1; i < stops.length; i++) {
+    const [a, b] = [stops[i - 1], stops[i]];
+    const [p1, l1, p2, l2] = [a.lat * r, a.lon * r, b.lat * r, b.lon * r];
+    const d = 2 * Math.asin(Math.sqrt(Math.sin((p2 - p1) / 2) ** 2 +
+      Math.cos(p1) * Math.cos(p2) * Math.sin((l2 - l1) / 2) ** 2));
+    const n = Math.max(2, Math.ceil((d * 3440) / 50)); // a sample every ~50 NM
+    for (let k = 0; k <= n; k++) {
+      const f = k / n;
+      let pLat, pLon;
+      if (d < 1e-9) { pLat = a.lat; pLon = a.lon; } else {
+        const A = Math.sin((1 - f) * d) / Math.sin(d), B = Math.sin(f * d) / Math.sin(d);
+        const x = A * Math.cos(p1) * Math.cos(l1) + B * Math.cos(p2) * Math.cos(l2);
+        const y = A * Math.cos(p1) * Math.sin(l1) + B * Math.cos(p2) * Math.sin(l2);
+        const z = A * Math.sin(p1) + B * Math.sin(p2);
+        pLat = Math.atan2(z, Math.hypot(x, y)) / r;
+        pLon = Math.atan2(y, x) / r;
+      }
+      if (nmBetween(lat, lon, pLat, pLon) <= ROUTE_SLACK_NM) return true;
+    }
+  }
+  return false;
+}
+// "KSEA-KLAX" → "SEA → LAX", by IATA code where the airport has one (EGLL →
+// LHR), else the ICAO ident. Null when unverifiable or implausible.
+function routeLabel(codes, ac) {
+  if (!codes) return null;
+  const idents = codes.split('-');
+  const stops = idents.map(airportAt);
+  if (stops.some((s) => s === undefined || s === null)) return null;
+  if (!nearRoute(ac.lat, ac.lon, stops)) return null;
+  return stops.map((s, i) => s.iata || idents[i]).join(' → ');
+}
+
 // ----------------------------------------------------------- today's sky
 // Every aircraft the feed showed today, once each: what it was, and whether
 // it came overhead, was military or squawked an emergency. Kept here rather
@@ -493,6 +624,7 @@ async function pollOnce(kind) {
       lastOuterAt = Date.now();
     }
     const aircraft = normalize(ac);
+    for (const a of aircraft) a.route = routeLabel(routeFor(a.callsign), a);
     noteSky(aircraft);
     lastSuccessAt = Date.now();
     consecutiveFailures = 0;

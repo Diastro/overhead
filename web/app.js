@@ -911,7 +911,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // same vocabulary as the data blocks: flight levels up high, one glyph
       // for missing data
       const alt = t.fix.onGround ? 'GROUND' : (fmtAlt(t.fix.alt) || `ALT ${NO_DATA}`);
-      l2.textContent = [m.type || NO_DATA, alt, m.operator || ''].filter(Boolean).join(' · ');
+      l2.textContent = [m.type || NO_DATA, alt, m.route, m.operator || ''].filter(Boolean).join(' · ');
       li.append(l1, l2);
       li.addEventListener('click', () => { t.detailUntil = Date.now() + DETAIL_MS; });
       return li;
@@ -2191,6 +2191,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const lines = [id, alt, speedType];
     if (model) lines.push(model);
     if (m.operator) lines.push(m.operator);
+    // Where it is going (server-side, published schedule, checked against the
+    // aircraft's position before it is sent). Last, in the quiet colour: it is
+    // context, not something a controller would read first.
+    if (m.route) lines.push(m.route);
     return lines;
   }
 
@@ -3258,7 +3262,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (ov) {
       const m = ov.meta;
       const alt = ov.fix.onGround ? 'GND' : fmtAlt(ov.fix.alt);
-      return [nameOf(m), m.type, alt && alt.toUpperCase()].filter(Boolean).join(' · ');
+      return [nameOf(m), m.type, alt && alt.toUpperCase(), m.route].filter(Boolean).join(' · ');
     }
     if (next) {
       const s = Math.max(0, Math.round(next.sec));
