@@ -890,6 +890,36 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }
     return best;
   }
+  // Minutes to the airport, estimated. A straight line at current speed said
+  // "1 MIN" for a jet at FL240 seven miles out — it cannot lose 24,000 ft in
+  // seven miles. So the track it still needs is at least its height on a
+  // ~3° descent (300 ft per NM), flown at no more than 250 kt (the speed limit
+  // below 10,000 ft, where most of an arrival happens). Shown with "~".
+  function etaMin(d, t) {
+    const gs = t.fix.gs;
+    if (!Number.isFinite(gs) || gs < 60) return null;
+    const track = Math.max(d, (t.fix.alt || 0) / 300);
+    return Math.max(1, Math.round((track / Math.min(gs, 250)) * 60));
+  }
+  // The next arrival, for the wall chip — refreshed every few seconds, not per
+  // frame, since it walks every target.
+  let nextArrival = null;
+  setInterval(() => {
+    if (paused) return;
+    const ap = boardAirport();
+    nextArrival = null;
+    if (!ap) return;
+    for (const t of targets.values()) {
+      const r = t.meta.route;
+      if (!r || t.fix.onGround) continue;
+      const stops = r.split(' → ');
+      if (stops[stops.length - 1] !== ap.iata) continue;
+      const eta = etaMin(distNm(ap.lat, ap.lon, t.shown.lat, t.shown.lon), t);
+      if (eta != null && (!nextArrival || eta < nextArrival.eta)) {
+        nextArrival = { eta, iata: ap.iata, name: t.meta.callsign || t.meta.reg, from: stops[stops.length - 2] };
+      }
+    }
+  }, 3000);
   function renderBoard() {
     const ap = boardAirport();
     if (!ap) { boardEl.replaceChildren(); return; }
@@ -899,7 +929,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (!r || t.fix.onGround) continue;
       const stops = r.split(' → ');
       const d = distNm(ap.lat, ap.lon, t.shown.lat, t.shown.lon);
-      if (stops[stops.length - 1] === ap.iata) inbound.push([d, t, stops[stops.length - 2]]);
+      if (stops[stops.length - 1] === ap.iata) inbound.push([d, t, stops[stops.length - 2], etaMin(d, t)]);
       else if (stops[0] === ap.iata) outbound.push([d, t, stops[1]]);
     }
     const section = (title, rows, word) => {
@@ -910,14 +940,14 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       hd.className = 'board-hd';
       hd.textContent = `${title} ${ap.iata} · ${rows.length}`;
       box.appendChild(hd);
-      for (const [d, t, other] of rows.slice(0, 5)) {
+      for (const [d, t, other, eta] of rows.slice(0, 5)) {
         const row = document.createElement('div');
         row.className = 'board-row';
         const alt = t.fix.alt != null ? fmtAlt(t.fix.alt).toUpperCase() : NO_DATA;
         row.innerHTML = '<b></b><span class="bd-other"></span><span class="bd-d"></span><span class="bd-alt"></span>';
         row.children[0].textContent = t.meta.callsign || t.meta.reg || t.meta.hex.toUpperCase();
         row.children[1].textContent = `${word} ${other}`;
-        row.children[2].textContent = `${d.toFixed(0)} NM`;
+        row.children[2].textContent = eta != null ? `~${eta} MIN` : `${d.toFixed(0)} NM`;
         row.children[3].textContent = alt;
         box.appendChild(row);
       }
@@ -3378,6 +3408,23 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       SHELL_COMMANDS[msg.cmd](msg.on);
     }
   });
+  // Keyboard, for a desktop browser: T theme, S next style, L layers,
+  // F or / find, H home, Esc closes the preview. Ignored while typing.
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName)) return;
+    const k = e.key.toLowerCase();
+    if (k === 't') themeToggle.click();
+    else if (k === 's') {
+      const i = STYLE_LIST.findIndex((st) => st.id === styleId);
+      setStyle(STYLE_LIST[(i + 1) % STYLE_LIST.length].id);
+    } else if (k === 'l') layersToggle.click();
+    else if (k === 'f' || k === '/') { e.preventDefault(); findToggle.click(); }
+    else if (k === 'h') homeToggle.click();
+    else if (k === 'escape' && preview) endPreview(false);
+    else return;
+  });
+
   // Panels tidy themselves on a kiosk. Someone taps LAYERS on the wall,
   // changes a switch and walks away; the panel then covered a third of the
   // map for days. Embedded, open panels close after two minutes without a
@@ -3448,8 +3495,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const detail = barDetail(ov, next);
     setText(el.detail, 'detail', detail ? ` · ${detail}` : '');
     // With nothing overhead or on the way, the wall chip shows the day so far.
-    const quiet = !detail && todayData
-      ? `TODAY · ${todayData.aircraft.toLocaleString()} AIRCRAFT · ${todayData.overhead} OVERHEAD` : '';
+    const quiet = detail ? ''
+      : nextArrival ? `NEXT ARRIVAL ${nextArrival.iata} · ${nextArrival.name} FROM ${nextArrival.from} · ~${nextArrival.eta} MIN`
+      : todayData ? `TODAY · ${todayData.aircraft.toLocaleString()} AIRCRAFT · ${todayData.overhead} OVERHEAD` : '';
     setText(el.chip, 'chip', ov ? `OVERHEAD · ${detail}` : detail || quiet);
     if (cached.detailOv !== !!ov) {
       cached.detailOv = !!ov;

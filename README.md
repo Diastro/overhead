@@ -177,7 +177,11 @@ vector maps, left their inks under bar on 16–43% of a photo.
   numbers get reused across legs, and a wrong route is worse than none.
 - **Airport board** — **✈ IN VIEW** opens with the nearest large airport's
   (within 30 NM of home) inbound and outbound flights: callsign, the other
-  end of the route, distance to the airport and altitude, five each.
+  end of the route, altitude, and for inbound flights an estimated time to
+  arrival that allows for the descent (`~19 MIN`). On a kiosk the bottom chip
+  shows the next arrival when nothing is overhead or on its way over.
+- **Keyboard** (desktop) — `T` theme, `S` next style, `L` layers, `F` or `/`
+  find, `H` home, `Esc` cancels a style preview.
 - **Today** — **⚙ SETTINGS** shows the day so far: aircraft seen (each
   once), how many came overhead, military, emergencies, the busiest hour,
   the most common type and the ones seen only once. The server keeps this
