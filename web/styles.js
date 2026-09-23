@@ -253,7 +253,7 @@
           trail: '#3fbf6e', leader: '#3f9a62', iconHalo: 'rgba(1,8,4,0.85)',
           blockBg: 'rgba(2,14,7,0.92)', blockEdge: '#4caf72',
           amber: '#ffb000', amberEdge: '#d99400', amberBg: 'rgba(24,18,2,0.94)',
-          ring: '#34905a', ringText: '#6fd894', ringLabelBg: 'rgba(1,10,5,0.85)',
+          ring: '#50a071', ringText: '#6fd894', ringLabelBg: 'rgba(1,10,5,0.85)',
           home: '#e6ffee', airport: '#6fc48e', dim: '#4d7a5c',
           textNormal: ['#7dffa8', '#e2ffe9', '#ffc95e', '#8fcfa4'],
         },
@@ -266,7 +266,7 @@
         inks: { police: '#2a4edb', mil: '#b3261a', amberEdge: '#855100', amber: '#855100',
           altBands: ['#176231', '#125226', '#0e421d', '#093214', '#05220c'], icon: '#176231',
           trail: '#1f6a38', leader: '#5f7050', blockBg: 'rgba(246,249,240,0.95)', blockEdge: '#56694a',
-          ring: '#5d7d4e', ringText: '#3a5a30', ringLabelBg: 'rgba(246,249,240,0.88)',
+          ring: '#526e45', ringText: '#3a5a30', ringLabelBg: 'rgba(246,249,240,0.88)',
           home: '#1c2c16', airport: '#3c6637', dim: '#7d8a74',
           textNormal: ['#176231', '#23301d', '#b36200', '#56644c'],
         },
@@ -359,7 +359,7 @@
           blockBg: 'rgba(4,7,11,0.93)', blockEdge: '#5a6f98',
           amber: '#d09a38', amberEdge: '#a07424', amberBg: 'rgba(20,14,4,0.94)',
           textOverhead: ['#d09a38', '#e0d0b0', '#d0a050', '#a89070'],
-          ring: '#5268a0', ringText: '#8a9ccc', ringLabelBg: 'rgba(3,5,8,0.85)',
+          ring: '#6074a8', ringText: '#8a9ccc', ringLabelBg: 'rgba(3,5,8,0.85)',
           home: '#b8c6dc', airport: '#7a90bc', dim: '#5a6070',
           textNormal: ['#7fa6dc', '#b8c6dc', '#d0a050', '#7f8ca0'],
         },
@@ -388,7 +388,7 @@
           label: '#a2b0c0', halo: '#121b26', relief: { shadow: '#000000', op: 0.75 },
           coastLine: { color: '#7890a8', width: 0.9, opacity: 0.85 } },
         chrome: { bar: '#070b11', ink: '#9fb2c6', bright: '#eef4fa', muted: '#6f849a', accent: '#8fc4ee', border: '#2a3a4c' },
-        inks: { airport: '#9ab8d6' },
+        inks: { airport: '#9ab8d6', ring: '#7890aa' },
       },
       light: {
         map: { water: '#b3cdd8', coast: '#6f8e9e', urban: '#e0d3b6', land: '#ece4cd', road: '#f7f2e4',
@@ -417,7 +417,7 @@
           trail: '#99a5eb', leader: '#7e85bf', iconHalo: 'rgba(8,10,30,0.85)',
           blockBg: 'rgba(12,16,44,0.93)', blockEdge: '#8a92d0',
           amber: '#ffae42', amberEdge: '#e0922a',
-          ring: '#7a84ca', ringText: '#aab3f2', ringLabelBg: 'rgba(10,14,40,0.85)',
+          ring: '#8a93d0', ringText: '#aab3f2', ringLabelBg: 'rgba(10,14,40,0.85)',
           home: '#f0f1ff', airport: '#b0b8f0', dim: '#6a6f98',
           textNormal: ['#8ad3ef', '#eef0ff', '#ffc46b', '#a0a8d8'],
         },
@@ -463,7 +463,7 @@
           altBands: ['#2b4a78', '#223c63', '#1a2f4e', '#12223a', '#0a1526'], icon: '#2b4a78',
           trail: '#932819', leader: '#746651', blockBg: 'rgba(250,244,230,0.95)', blockEdge: '#6e6142',
           amber: '#734400', amberEdge: '#734400',
-          ring: '#ba3e2b', ringText: '#a3321f', ringLabelBg: 'rgba(250,244,230,0.88)',
+          ring: '#a23626', ringText: '#a3321f', ringLabelBg: 'rgba(250,244,230,0.88)',
           home: '#1d2e4a', airport: '#8f2c1b',
           textNormal: ['#2b4a78', '#2a2418', '#8a5200', '#6a5e4a'],
         },
@@ -499,7 +499,7 @@
           trail: '#005f99', leader: '#6a6a6a', blockBg: 'rgba(248,244,234,0.95)', blockEdge: '#3a3a3a',
           amber: '#6f5400', amberEdge: '#6f5400', amberBg: 'rgba(252,246,228,0.96)',
           textOverhead: ['#6f5400', '#2e2408', '#6f5400', '#6a5a30'],
-          ring: '#d42a90', ringText: '#b8207a', ringLabelBg: 'rgba(248,244,234,0.88)',
+          ring: '#bb257f', ringText: '#b8207a', ringLabelBg: 'rgba(248,244,234,0.88)',
           home: '#111111', airport: '#005f99',
           textNormal: ['#111111', '#2a2a2a', '#9c3200', '#5a5a5a'],
         },
@@ -508,6 +508,8 @@
 
     {
       id: 'orbital', label: 'ORBITAL', prefers: 'imagery',
+      // The one style drawn for photography; it also reads well on the canvas.
+      sources: ['imagery', 'esriCanvas'],
       note: 'Satellite imagery, graded: the night side with glowing cities, or bleached daylight. Heaviest tiles of any style.',
       dark: {
         map: { ramp: [[0, '#020409'], [0.2, '#04080e'], [0.4, '#0c1318'], [0.62, '#1a2226'], [0.8, '#24221f'], [1, '#3e3b36']],
@@ -537,7 +539,7 @@
         map: { water: '#111213', coast: '#505356', urban: '#242527', land: '#1e1f20', road: '#2e2f31',
           label: '#8a8d91', halo: '#151617', coastLine: { color: '#5a5d61', width: 0.9, opacity: 0.85 } },
         chrome: { bar: '#0c0c0d', ink: '#9a9da1', bright: '#f2f2f2', muted: '#75787c', accent: '#38bdff', border: '#34363a' },
-        inks: { ring: '#6f7276', ringText: '#8e9195', airport: '#9a9da1' },
+        inks: { ring: '#797c80', ringText: '#8e9195', airport: '#9a9da1' },
       },
       light: {
         map: { water: '#dcdcd8', coast: '#6a6a66', urban: '#e6e6e1', land: '#f2f2ee', road: '#ffffff',
@@ -546,7 +548,7 @@
         chrome: { bar: '#f7f7f4', ink: '#4a4a47', bright: '#141414', muted: '#6a6a66', accent: '#0a7fd9', border: '#d8d8d2' },
         inks: { police: '#2b50e1', mil: '#b8271a', leader: '#7c7a68', trail: '#13639a', amberEdge: '#895300', amber: '#895300',
           altBands: ['#0c5f9c', '#0b5087', '#094272', '#07345c', '#052646'], icon: '#0c5f9c',
-          ring: '#77776f', ringText: '#55554f', airport: '#4a5a6a',
+          ring: '#696962', ringText: '#55554f', airport: '#4a5a6a',
           textNormal: ['#0c5f9c', '#2b3640', '#b36200', '#57646f'],
         },
       },
@@ -743,5 +745,12 @@
     '--warn', '--warn-text', '--mil', '--police'];
 
   const byId = (id) => STYLES.find((s) => s.id === id) || STYLES[0];
-  return { STYLES, BASE_INKS, CHROME_VARS, byId, inksFor, filterDefs, chromeVars, labelKind, rampOf, sample, contrast, luminance, mix, deltaE, lab };
+  // Which styled sources a style is drawn for. Measured on real tiles
+  // (tools/check-render.js): run through a vector-map ramp, a photograph
+  // spreads across every stop including the dark coast colours, and the ten
+  // styles built for the canvas left their inks under bar on 16–43% of an
+  // imagery map. So imagery is ORBITAL's alone unless a style says otherwise.
+  const DEFAULT_SOURCES = ['esriCanvas', 'osm'];
+  const supports = (style, src) => (style.sources || DEFAULT_SOURCES).includes(src);
+  return { STYLES, BASE_INKS, CHROME_VARS, byId, supports, inksFor, filterDefs, chromeVars, labelKind, rampOf, sample, contrast, luminance, mix, deltaE, lab };
 });

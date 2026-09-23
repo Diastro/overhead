@@ -146,6 +146,13 @@ calibrated per provider (the keyed CARTO entry keeps its classic look).
 that style paints: 4.5:1 for aircraft, overhead, trails and text, 3:1 for
 rings and leader lines. Run it after changing a palette.
 
+`npm run check:render` is the same question asked of real tiles: it runs a
+few Esri and OSM tiles through each style's own filters in headless Chrome
+(Chrome or Chromium must be installed; `CHROME=` picks one) and fails when an
+aircraft ink or the range rings fall under 3:1 on more than 8% of the map.
+It is why satellite imagery is ORBITAL's alone: the other styles, drawn for
+vector maps, left their inks under bar on 16–43% of a photo.
+
 ## Scope tools
 
 - **Vectors** — a line to where each aircraft will be in one minute at its

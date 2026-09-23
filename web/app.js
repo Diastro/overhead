@@ -187,7 +187,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // how an ink quietly drops under its bar.
   function styleHalf() {
     const st = MAPSTYLES.byId(styleId);
-    if (st.classic || !currentBasemap().styled) return null;
+    if (st.classic || !currentBasemap().styled || !drawable(st, currentBasemap())) return null;
     return st[themeName];
   }
   // Filter ids are versioned per look (ms1-, ms2-, …). The outgoing layers
@@ -289,6 +289,13 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // setStyle(), which returns here when you leave that style.
       localStorage.setItem('overhead-basemap-user', id);
       localStorage.removeItem('overhead-basemap-auto');
+      // Your basemap wins over the style — but say so when the style is not
+      // drawn for it (imagery is ORBITAL's), rather than paint it badly.
+      const st = MAPSTYLES.byId(styleId);
+      const p = basemapList.find((q) => q.id === id);
+      if (p && !st.classic && p.styled && !drawable(st, p)) {
+        flashAlert(`${st.label} ISN'T DRAWN FOR ${p.label} — SHOWING CLASSIC`, 6000);
+      }
       basemapTried.clear(); // a deliberate choice re-arms automatic failover
     }
     // The whole look, not just the tiles: moving to a provider with no styled
@@ -2073,11 +2080,20 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // screen: what is on screen may be the previous style's preference, and
   // keeping it meant one look at ORBITAL left every later style pulling
   // satellite tiles.
+  // A provider this style can draw: CLASSIC draws anything; a styled look
+  // needs a styled source it was built for (imagery is ORBITAL's only).
+  // (A declaration, not a const: styleHalf() calls it, and runs earlier.)
+  function drawable(st, p) {
+    return st.classic || !p.styled || p.styled.layers.every((l) => l.relief || MAPSTYLES.supports(st, l.src));
+  }
   function resolveBasemap(st, announce) {
-    const ok = (pid) => pid && basemapList.some((p) => p.id === pid) && !recentlyFailed(pid);
+    const ok = (pid) => {
+      const p = pid && basemapList.find((q) => q.id === pid);
+      return !!p && !recentlyFailed(pid) && drawable(st, p);
+    };
     const userPick = localStorage.getItem('overhead-basemap-user');
     const target = ok(st.prefers) ? st.prefers : ok(userPick) ? userPick
-      : (basemapList.find((p) => !recentlyFailed(p.id)) || basemapList[0]).id;
+      : (basemapList.find((p) => !recentlyFailed(p.id) && drawable(st, p)) || basemapList[0]).id;
     if (target === basemapId) return;
     basemapId = target;
     localStorage.setItem('overhead-basemap', target);

@@ -119,6 +119,9 @@ for (const style of S.STYLES) {
     onMap('home', inks.home, 4.5);
     onMap('airport', inks.airport, 4.5);
     onMap('ring', inks.ring, 3);
+    // Rings cross roads, not just land and water: the rendered-tile check
+    // (check:render) found them lost on 8–21% of the map where they did.
+    if (m.road) rows.push(['ringOnRoad', inks.ring, S.contrast(inks.ring, m.road), 3, 'on road']);
     onMap('leader', inks.leader, 3);
     onMap('blockEdge', inks.blockEdge, 3);
     onMap('amberEdge', inks.amberEdge, 3);

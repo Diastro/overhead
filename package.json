@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node server/index.js",
     "check:basemaps": "node tools/check-basemaps.js",
-    "check:styles": "node tools/check-styles.js"
+    "check:styles": "node tools/check-styles.js",
+    "check:render": "node tools/check-render.js"
   }
 }
