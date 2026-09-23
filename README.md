@@ -147,6 +147,10 @@ calibrated per provider (the keyed CARTO entry keeps its classic look).
 that style paints: 4.5:1 for aircraft, overhead, trails and text, 3:1 for
 rings and leader lines. Run it after changing a palette.
 
+`npm test` runs the unit tests (Node's built-in runner, no dependencies): the
+day log and its midnight rollover, corrupt data files, route parsing and leg
+labelling, the sun elevation behind the auto theme, and arrival estimates.
+
 `npm run check:render` is the same question asked of real tiles: it runs a
 few Esri and OSM tiles through each style's own filters in headless Chrome
 (Chrome or Chromium must be installed; `CHROME=` picks one) and fails when an
@@ -222,7 +226,9 @@ web/            The display: Leaflet basemap + one canvas overlay drawing
 tools/          check-basemaps.js — fetches a real tile from every provider
                 so a withdrawn service is caught by `npm run check:basemaps`
                 rather than by looking at the wall. check-styles.js —
-                contrast of every style's inks on its own map.
+                contrast of every style's inks on its own map. check-render.js
+                — the same on real tiles in headless Chrome. test.js — the
+                unit tests behind `npm test`.
 data/           Machine-written caches and counters (gitignored).
 ```
 

@@ -7,6 +7,7 @@
   "engines": { "node": ">=18" },
   "scripts": {
     "start": "node server/index.js",
+    "test": "node --test tools/test.js",
     "check:basemaps": "node tools/check-basemaps.js",
     "check:styles": "node tools/check-styles.js",
     "check:render": "node tools/check-render.js"
