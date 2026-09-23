@@ -936,6 +936,10 @@ body.wall #alert-banner { font-size: 15px; padding: 11px 24px; }
   letter-spacing: 0.1em;
   color: var(--bar-ink);
   white-space: nowrap;
+  /* A long multi-stop callout used to run off both edges of a narrow screen. */
+  max-width: calc(100% - 32px);
+  overflow: hidden;
+  text-overflow: ellipsis;
   pointer-events: none;
 }
 body.embed #overhead-chip.show { display: block; }

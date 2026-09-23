@@ -169,7 +169,8 @@ vector maps, left their inks under bar on 16–43% of a photo.
   (`NEXT UAL1834 IN 1:06`). Embedded in a kiosk shell, where the header is
   hidden, the same line shows as a chip at the bottom of the map.
 - **Routes** — scheduled airline flights show where they are going
-  (`SLC → SEA`) at the foot of the data block, in the list and in the
+  (`SLC → SEA`, the leg being flown on a multi-stop route) at the foot of the
+  data block, in the list and in the
   overhead callout. Routes come from the public
   [Virtual Radar Server standing data](https://github.com/vradarserver/standing-data)
   (keyless; one small file per airline, cached in `data/routes/` for a week),

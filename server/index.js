@@ -225,6 +225,7 @@ const ROUTE_URL = (code) =>
 const routeTables = new Map();  // airline → Map(callsign → "KSEA-KLAX")
 const routeFailedAt = new Map(); // airline → ms of the last failure
 const routeQueue = new Set();
+const routeInflight = new Set(); // being fetched now — never queue it twice
 let routeBusy = false;
 function airlineOf(callsign) {
   const m = /^([A-Z]{3})\d{1,4}[A-Z]?$/.exec(callsign || '');
@@ -267,11 +268,14 @@ async function drainRouteQueue() {
   try {
     for (const code of routeQueue) {
       routeQueue.delete(code);
+      routeInflight.add(code);
       try {
         await loadAirlineRoutes(code);
       } catch (err) {
         routeFailedAt.set(code, Date.now());
         console.error(`[routes] ${code} failed (${err.message})`);
+      } finally {
+        routeInflight.delete(code);
       }
       await sleep(2000);
     }
@@ -285,7 +289,7 @@ function routeFor(callsign) {
   if (!code) return null;
   const table = routeTables.get(code);
   if (table) return table.get(callsign) || null;
-  if (Date.now() - (routeFailedAt.get(code) || 0) > 3600e3) {
+  if (!routeInflight.has(code) && Date.now() - (routeFailedAt.get(code) || 0) > 3600e3) {
     routeQueue.add(code);
     drainRouteQueue();
   }
@@ -306,39 +310,64 @@ function airportAt(ident) {
   }
   return airportIndex.get(ident) || null;
 }
-function nearRoute(lat, lon, stops) {
-  const r = Math.PI / 180;
+// The leg of a multi-stop route this aircraft is flying: the nearest leg
+// within ROUTE_SLACK_NM, where a leg whose destination lies behind the
+// aircraft (more than 100° off its track) counts as 200 NM further away —
+// that separates the two legs of a round trip through one airport. -1 when
+// no leg is near. Labelling by leg (DEN → SEA → OAK over Seattle, southbound,
+// is "SEA → OAK") is also what lets the board see SEA as a middle stop.
+function currentLeg(lat, lon, track, stops) {
+  let best = -1, bestScore = Infinity;
   for (let i = 1; i < stops.length; i++) {
-    const [a, b] = [stops[i - 1], stops[i]];
-    const [p1, l1, p2, l2] = [a.lat * r, a.lon * r, b.lat * r, b.lon * r];
-    const d = 2 * Math.asin(Math.sqrt(Math.sin((p2 - p1) / 2) ** 2 +
-      Math.cos(p1) * Math.cos(p2) * Math.sin((l2 - l1) / 2) ** 2));
-    const n = Math.max(2, Math.ceil((d * 3440) / 50)); // a sample every ~50 NM
-    for (let k = 0; k <= n; k++) {
-      const f = k / n;
-      let pLat, pLon;
-      if (d < 1e-9) { pLat = a.lat; pLon = a.lon; } else {
-        const A = Math.sin((1 - f) * d) / Math.sin(d), B = Math.sin(f * d) / Math.sin(d);
-        const x = A * Math.cos(p1) * Math.cos(l1) + B * Math.cos(p2) * Math.cos(l2);
-        const y = A * Math.cos(p1) * Math.sin(l1) + B * Math.cos(p2) * Math.sin(l2);
-        const z = A * Math.sin(p1) + B * Math.sin(p2);
-        pLat = Math.atan2(z, Math.hypot(x, y)) / r;
-        pLon = Math.atan2(y, x) / r;
-      }
-      if (nmBetween(lat, lon, pLat, pLon) <= ROUTE_SLACK_NM) return true;
+    const d = legDistance(lat, lon, stops[i - 1], stops[i]);
+    if (d > ROUTE_SLACK_NM) continue;
+    let score = d;
+    if (Number.isFinite(track)) {
+      const b = stops[i];
+      const r = Math.PI / 180;
+      const brg = (Math.atan2(Math.sin((b.lon - lon) * r) * Math.cos(b.lat * r),
+        Math.cos(lat * r) * Math.sin(b.lat * r) - Math.sin(lat * r) * Math.cos(b.lat * r) * Math.cos((b.lon - lon) * r)) / r + 360) % 360;
+      const off = Math.abs(((brg - track + 540) % 360) - 180);
+      if (off > 100) score += 200;
     }
+    if (score < bestScore) { bestScore = score; best = i; }
   }
-  return false;
+  return best;
+}
+// Closest approach, in NM, of a point to one great-circle leg (sampled).
+function legDistance(lat, lon, a, b) {
+  const r = Math.PI / 180;
+  let min = Infinity;
+  const [p1, l1, p2, l2] = [a.lat * r, a.lon * r, b.lat * r, b.lon * r];
+  const d = 2 * Math.asin(Math.sqrt(Math.sin((p2 - p1) / 2) ** 2 +
+    Math.cos(p1) * Math.cos(p2) * Math.sin((l2 - l1) / 2) ** 2));
+  const n = Math.max(2, Math.ceil((d * 3440) / 50)); // a sample every ~50 NM
+  for (let k = 0; k <= n; k++) {
+    const f = k / n;
+    let pLat, pLon;
+    if (d < 1e-9) { pLat = a.lat; pLon = a.lon; } else {
+      const A = Math.sin((1 - f) * d) / Math.sin(d), B = Math.sin(f * d) / Math.sin(d);
+      const x = A * Math.cos(p1) * Math.cos(l1) + B * Math.cos(p2) * Math.cos(l2);
+      const y = A * Math.cos(p1) * Math.sin(l1) + B * Math.cos(p2) * Math.sin(l2);
+      const z = A * Math.sin(p1) + B * Math.sin(p2);
+      pLat = Math.atan2(z, Math.hypot(x, y)) / r;
+      pLon = Math.atan2(y, x) / r;
+    }
+    min = Math.min(min, nmBetween(lat, lon, pLat, pLon));
+  }
+  return min;
 }
 // "KSEA-KLAX" → "SEA → LAX", by IATA code where the airport has one (EGLL →
-// LHR), else the ICAO ident. Null when unverifiable or implausible.
+// LHR), else the ICAO ident — for the leg being flown. Null when unverifiable
+// or implausible.
 function routeLabel(codes, ac) {
   if (!codes) return null;
   const idents = codes.split('-');
   const stops = idents.map(airportAt);
   if (stops.some((s) => s === undefined || s === null)) return null;
-  if (!nearRoute(ac.lat, ac.lon, stops)) return null;
-  return stops.map((s, i) => s.iata || idents[i]).join(' → ');
+  const leg = currentLeg(ac.lat, ac.lon, ac.track, stops);
+  if (leg < 0) return null;
+  return [leg - 1, leg].map((i) => stops[i].iata || idents[i]).join(' → ');
 }
 
 // ----------------------------------------------------------- today's sky
@@ -354,8 +383,25 @@ let todayDirty = false;
 // Past days, one summary each, newest last — the week's shape without
 // keeping every hex forever. 30 days is ~6 KB.
 const HISTORY_PATH = path.join(ROOT, 'data', 'history.json');
+// Both files are read defensively and cleaned entry by entry. An earlier
+// version let any truthy JSON through: a history.json of {} made archiveDay
+// throw at midnight, and since noteSky runs inside the feed poll, every poll
+// after it counted as a feed failure — the wall froze on its last aircraft.
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 let history = [];
-try { history = JSON.parse(fs.readFileSync(HISTORY_PATH, 'utf8')) || []; } catch {}
+try {
+  const h = JSON.parse(fs.readFileSync(HISTORY_PATH, 'utf8'));
+  history = Array.isArray(h) ? h.filter((d) => d && DAY_RE.test(d.day) && Number.isFinite(d.aircraft)) : [];
+} catch {}
+function cleanDay(t) {
+  if (!t || !DAY_RE.test(t.day) || !t.seen || typeof t.seen !== 'object' || Array.isArray(t.seen)) return null;
+  const seen = {};
+  for (const [hex, v] of Object.entries(t.seen)) {
+    if (v && typeof v === 'object') seen[hex] = { t: typeof v.t === 'string' ? v.t : '', f: Number.isInteger(v.f) ? v.f : 0 };
+  }
+  const hours = Array.from({ length: 24 }, (_, i) => (Array.isArray(t.hours) && Number.isFinite(t.hours[i]) ? t.hours[i] : 0));
+  return { day: t.day, seen, hours };
+}
 function archiveDay(day) {
   if (!Object.keys(day.seen).length || history.some((h) => h.day === day.day)) return;
   const { hours, onlyOnce, ...rest } = summarize(day);
@@ -366,10 +412,14 @@ function archiveDay(day) {
   }
 }
 try {
-  const t = JSON.parse(fs.readFileSync(TODAY_PATH, 'utf8'));
-  if (t && t.seen && Array.isArray(t.hours)) {
-    // A server that was down over midnight still owes yesterday to history.
-    if (t.day === today.day) today = t; else setImmediate(() => archiveDay(t));
+  const t = cleanDay(JSON.parse(fs.readFileSync(TODAY_PATH, 'utf8')));
+  // A server that was down over midnight still owes yesterday to history.
+  // A saved day LATER than the clock means the clock is wrong (a Pi boots
+  // on fake-hwclock's last save until NTP answers): keep counting into it
+  // rather than archive a day that has not finished.
+  if (t) {
+    if (t.day >= today.day) today = t;
+    else setImmediate(() => archiveDay(t));
   }
 } catch {}
 const F_OVERHEAD = 1, F_MIL = 2, F_EMERG = 4, F_POLICE = 8;
@@ -382,7 +432,9 @@ function nmBetween(lat1, lon1, lat2, lon2) {
 function noteSky(aircraft) {
   const now = new Date();
   const day = dayKey(now.getTime());
-  if (today.day !== day) { archiveDay(today); today = freshDay(day); }
+  // Only ever forward: a clock that steps back (NTP correcting a bad boot
+  // time) must not archive the day in progress.
+  if (day > today.day) { archiveDay(today); today = freshDay(day); }
   const hour = now.getHours();
   for (const ac of aircraft) {
     if (!ac.hex) continue;
@@ -643,7 +695,8 @@ async function pollOnce(kind) {
     }
     const aircraft = normalize(ac);
     for (const a of aircraft) a.route = routeLabel(routeFor(a.callsign), a);
-    noteSky(aircraft);
+    // Bookkeeping must never cost the display its aircraft.
+    try { noteSky(aircraft); } catch (err) { console.error(`[today] ${err.message}`); }
     lastSuccessAt = Date.now();
     consecutiveFailures = 0;
     failStreak = 0;
@@ -1068,15 +1121,16 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (url.pathname === '/history') {
+  if (url.pathname === '/history' || url.pathname === '/today') {
+    // Stats are a nicety: a failure here is a 500, never a dead process.
+    let body;
+    try { body = JSON.stringify(url.pathname === '/today' ? todaySummary() : history); } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(history));
-    return;
-  }
-
-  if (url.pathname === '/today') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(todaySummary()));
+    res.end(body);
     return;
   }
 

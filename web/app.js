@@ -2294,14 +2294,15 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const from = preview.from;
     preview = null;
     previewBar.hidden = true;
-    if (!keep) setStyle(from);
+    // KEEP saves the previewed style now; REVERT goes back (and saves that).
+    setStyle(keep ? styleId : from);
   }
   function previewStyle(id) {
     if (id === styleId && !preview) return;
     if (!preview) preview = { from: styleId };
     else clearInterval(preview.timer);
-    if (id === preview.from) { endPreview(true); setStyle(id); return; }
-    setStyle(id);
+    if (id === preview.from) { endPreview(false); return; }
+    setStyle(id, { preview: true });
     preview.until = Date.now() + PREVIEW_S * 1000;
     const tick = () => {
       const left = Math.ceil((preview.until - Date.now()) / 1000);
@@ -2320,10 +2321,20 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     // Touch screens never show a title tooltip, so the description is text.
     styleNote.textContent = st.note;
   }
-  function setStyle(id) {
+  // opts.preview: a swatch preview — applied, not saved, and left to the
+  // preview's own timer. Any other caller (dropdown, kiosk shell, keyboard)
+  // is a real choice: it ends a running preview and keeps what it picked.
+  // Before, a shell or keyboard pick during a preview was undone by the
+  // preview's revert, and a reload mid-preview kept the previewed style.
+  function setStyle(id, opts = {}) {
     if (!STYLE_LIST.some((st) => st.id === id)) return;
+    if (!opts.preview && preview) {
+      clearInterval(preview.timer);
+      preview = null;
+      previewBar.hidden = true;
+    }
     styleId = id;
-    localStorage.setItem('overhead-style', id);
+    if (!opts.preview) localStorage.setItem('overhead-style', id);
     const st = MAPSTYLES.byId(id);
     showStyle(st);
     resolveBasemap(st, true);
@@ -2334,7 +2345,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       flashAlert(`${st.label} NEEDS A KEYLESS BASEMAP — ${currentBasemap().label} STAYS CLASSIC`, 6000);
     }
   }
-  styleSelect.addEventListener('change', () => { if (preview) endPreview(true); setStyle(styleSelect.value); });
+  styleSelect.addEventListener('change', () => setStyle(styleSelect.value));
   // Boot. A basemap chosen before styles existed only ever lived in
   // 'overhead-basemap'; adopt it as the user's pick, or the first style
   // change would replace it for good. Then give the starting style its
@@ -2884,7 +2895,16 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   const CA_FLOOR_FT = config.conflict_floor_ft ?? 5000;
   let conflicts = [];             // [[hexA, hexB], …], refreshed twice a second
   let conflictAt = 0;
-  const conflictSeen = new Set(); // pairs already announced on the banner
+  // Pairs already announced → when last seen in conflict. A pair is only
+  // re-announced after it has been clear for a minute, so a flickering pair
+  // does not repaint the banner every second.
+  const conflictSeen = new Map();
+  // Hysteresis: a pair is RAISED inside CA_NM and 800 ft (1,000 ft is legal
+  // vertical separation, and FL340 against FL350 reporting 34,975 is not a
+  // conflict), and HELD until it opens past CA_NM + 0.5 and CA_FT. A single
+  // hard edge flickered on 25 ft of altitude jitter.
+  const CA_RAISE_FT = CA_FT - 200;
+  let conflictLive = new Set();
   function findConflicts() {
     const air = [];
     for (const t of targets.values()) {
@@ -2896,20 +2916,25 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     for (let i = 0; i < air.length; i++) {
       for (let j = i + 1; j < air.length; j++) {
         const a = air[i], b = air[j];
-        if (Math.abs(a.fix.alt - b.fix.alt) >= CA_FT) continue;
-        if (distNm(a.shown.lat, a.shown.lon, b.shown.lat, b.shown.lon) >= CA_NM) continue;
-        out.push([a.meta.hex, b.meta.hex]);
+        const key = a.meta.hex < b.meta.hex ? `${a.meta.hex}|${b.meta.hex}` : `${b.meta.hex}|${a.meta.hex}`;
+        const held = conflictLive.has(key);
+        if (Math.abs(a.fix.alt - b.fix.alt) >= (held ? CA_FT : CA_RAISE_FT)) continue;
+        if (distNm(a.shown.lat, a.shown.lon, b.shown.lat, b.shown.lon) >= (held ? CA_NM + 0.5 : CA_NM)) continue;
+        out.push(key.split('|'));
       }
     }
     const live = new Set(out.map((p) => p.join('|')));
+    conflictLive = live;
+    const now = Date.now();
     for (const [a, b] of out) {
       const key = `${a}|${b}`;
-      if (conflictSeen.has(key)) continue;
-      conflictSeen.add(key);
+      const seenAt = conflictSeen.get(key);
+      conflictSeen.set(key, now);
+      if (seenAt !== undefined) continue;
       const name = (hex) => { const m = targets.get(hex)?.meta; return m?.callsign || m?.reg || hex.toUpperCase(); };
       flashAlert(`CONFLICT ALERT · ${name(a)} / ${name(b)}`, 8000);
     }
-    for (const k of conflictSeen) if (!live.has(k)) conflictSeen.delete(k);
+    for (const [k, at] of conflictSeen) if (now - at > 60000) conflictSeen.delete(k);
     return out;
   }
   function drawConflicts(nowMs) {
@@ -3428,6 +3453,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     // Own properties only: 'constructor' or '__proto__' from a confused shell
     // used to resolve to Object's own methods and throw "APP ERROR" on glass.
     if (msg.type === 'command' && typeof msg.cmd === 'string' && Object.hasOwn(SHELL_COMMANDS, msg.cmd)) {
+      lastTouch = Date.now();
       SHELL_COMMANDS[msg.cmd](msg.on);
     }
   });
@@ -3453,9 +3479,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // map for days. Embedded, open panels close after two minutes without a
   // touch (panel_autoclose_seconds; 0 turns it off). Closing goes through each
   // panel's own toggle, so the closed state persists like a manual close.
+  let lastTouch = Date.now();
   if (EMBED) {
     const idleMs = (config.panel_autoclose_seconds ?? 120) * 1000;
-    let lastTouch = Date.now();
+    // (lastTouch lives outside: kiosk shell commands count as a touch too —
+    // a panel the shell just opened was otherwise closed within 5 s.)
     for (const ev of ['pointerdown', 'keydown', 'wheel']) {
       window.addEventListener(ev, () => { lastTouch = Date.now(); }, { passive: true, capture: true });
     }
