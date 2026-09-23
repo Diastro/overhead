@@ -210,9 +210,91 @@ function saveUsage() {
     console.error(`[usage] save failed: ${err.message}`);
   }
 }
+// ----------------------------------------------------------- today's sky
+// Every aircraft the feed showed today, once each: what it was, and whether
+// it came overhead, was military or squawked an emergency. Kept here rather
+// than in a browser because the server is the one thing that watches all day
+// — a kiosk reload or a second screen must not reset "today". Same cadence
+// and atomic write as the usage counters; rolls over at LOCAL midnight.
+const TODAY_PATH = path.join(ROOT, 'data', 'today.json');
+const freshDay = (day) => ({ day, seen: {}, hours: Array(24).fill(0) });
+let today = freshDay(dayKey(Date.now()));
+let todayDirty = false;
+try {
+  const t = JSON.parse(fs.readFileSync(TODAY_PATH, 'utf8'));
+  if (t && t.day === today.day && t.seen && Array.isArray(t.hours)) today = t;
+} catch {}
+const F_OVERHEAD = 1, F_MIL = 2, F_EMERG = 4, F_POLICE = 8;
+function nmBetween(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180;
+  const a = Math.sin(((lat2 - lat1) * r) / 2) ** 2 +
+    Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lon2 - lon1) * r) / 2) ** 2;
+  return 2 * 3440.065 * Math.asin(Math.sqrt(a));
+}
+function noteSky(aircraft) {
+  const now = new Date();
+  const day = dayKey(now.getTime());
+  if (today.day !== day) today = freshDay(day);
+  const hour = now.getHours();
+  for (const ac of aircraft) {
+    if (!ac.hex) continue;
+    let rec = today.seen[ac.hex];
+    if (!rec) {
+      rec = today.seen[ac.hex] = { t: ac.type || '', f: 0 };
+      today.hours[hour]++;
+    }
+    if (ac.type && !rec.t) rec.t = ac.type;
+    let f = rec.f;
+    if (ac.mil) f |= F_MIL;
+    if (ac.emerg) f |= F_EMERG;
+    if (ac.police) f |= F_POLICE;
+    if (!ac.onGround && (ac.alt == null || ac.alt <= (config.overhead_max_ft ?? 18000)) &&
+        nmBetween(config.home.lat, config.home.lon, ac.lat, ac.lon) <= (config.overhead_nm ?? 3)) {
+      f |= F_OVERHEAD;
+    }
+    rec.f = f;
+  }
+  todayDirty = true;
+}
+// Wide-bodies and oddities first when naming what showed up only once today.
+const NOTABLE = /^(A38|A35|A34|A33|B74|B77|B78|B76|C17|C5|C130|C30J|K35|KC|E3|E6|P8|B52|B1|B2|F\d|AN|IL|CONC|DC10|MD11|A400|BLCF|BELF|H47|V22)/;
+function todaySummary() {
+  const recs = Object.values(today.seen);
+  const count = (bit) => recs.filter((r) => r.f & bit).length;
+  const types = {};
+  for (const r of recs) if (r.t) types[r.t] = (types[r.t] || 0) + 1;
+  const ranked = Object.entries(types).sort((a, b) => b[1] - a[1]);
+  const once = ranked.filter(([, n]) => n === 1).map(([t]) => t)
+    .sort((a, b) => (NOTABLE.test(b) - NOTABLE.test(a)) || a.localeCompare(b));
+  const busiest = today.hours.reduce((best, n, h) => (n > today.hours[best] ? h : best), 0);
+  return {
+    day: today.day,
+    aircraft: recs.length,
+    overhead: count(F_OVERHEAD),
+    military: count(F_MIL),
+    emergencies: count(F_EMERG),
+    police: count(F_POLICE),
+    busiestHour: today.hours[busiest] ? busiest : null,
+    hours: today.hours,
+    topType: ranked[0] || null,
+    onlyOnce: once.slice(0, 4),
+    types: ranked.length,
+  };
+}
+function saveToday() {
+  if (!todayDirty) return;
+  try {
+    writeJsonAtomic(TODAY_PATH, today, false);
+    todayDirty = false;
+  } catch (err) {
+    console.error(`[today] save failed: ${err.message}`);
+  }
+}
+
 setInterval(saveUsage, 60000);
+setInterval(saveToday, 60000);
 for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => { saveUsage(); process.exit(0); });
+  process.on(sig, () => { saveUsage(); saveToday(); process.exit(0); });
 }
 
 let sourceIdx = 0;
@@ -411,6 +493,7 @@ async function pollOnce(kind) {
       lastOuterAt = Date.now();
     }
     const aircraft = normalize(ac);
+    noteSky(aircraft);
     lastSuccessAt = Date.now();
     consecutiveFailures = 0;
     failStreak = 0;
@@ -832,6 +915,12 @@ const server = http.createServer(async (req, res) => {
       // dark airspace layer is never silently dark.
       res.end(JSON.stringify({ error: err.message || 'airspace data unavailable' }));
     }
+    return;
+  }
+
+  if (url.pathname === '/today') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(todaySummary()));
     return;
   }
 

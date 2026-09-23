@@ -160,6 +160,11 @@ rings and leader lines. Run it after changing a palette.
   aircraft whose current track will carry it over home within five minutes
   (`NEXT UAL1834 IN 1:06`). Embedded in a kiosk shell, where the header is
   hidden, the same line shows as a chip at the bottom of the map.
+- **Today** — **⚙ SETTINGS** shows the day so far: aircraft seen (each
+  once), how many came overhead, military, emergencies, the busiest hour,
+  the most common type and the ones seen only once. The server keeps this
+  in `data/today.json` (gitignored) and resets it at local midnight; on a
+  kiosk the bottom chip shows the day's totals when the sky is quiet.
 
 Both scope tools are switches in **◧ LAYERS**.
 

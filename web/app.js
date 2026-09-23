@@ -1380,11 +1380,74 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   let bwPrev = null;
   let bwHover = null; // hovered sample index or null
 
+  // TODAY: the server's log of the day's sky (/today) — every aircraft once,
+  // how many came overhead, military, emergencies, and the busy hours. The
+  // server keeps it, so a kiosk reload or a second screen shows the same day.
+  let todayData = null;
+  const todayCanvas = document.getElementById('today-canvas');
+  const todayCtx = todayCanvas.getContext('2d');
+  const todaySum = document.getElementById('today-sum');
+  const todayStats = document.getElementById('today-stats');
+  async function loadToday() {
+    try {
+      const r = await fetch('/today');
+      if (r.ok) todayData = await r.json();
+    } catch { /* keep the last one */ }
+    renderToday();
+  }
+  function renderToday() {
+    const d = todayData;
+    if (!d) return;
+    todaySum.textContent = `${d.aircraft.toLocaleString()} SEEN`;
+    const parts = [
+      `<span class="ovhd"><b>${d.overhead}</b> OVERHEAD</span>`,
+      d.military ? `<span class="mil"><b>${d.military}</b> MILITARY</span>` : '',
+      d.emergencies ? `<span class="mil"><b>${d.emergencies}</b> EMERGENCY</span>` : '',
+      d.busiestHour != null ? `BUSIEST <b>${String(d.busiestHour).padStart(2, '0')}:00</b>` : '',
+    ].filter(Boolean);
+    const lines = [parts.join(' · ')];
+    if (d.topType) lines.push(`MOST SEEN <b>${d.topType[0]}</b> ×${d.topType[1]} · ${d.types} TYPES`);
+    if (d.onlyOnce.length) lines.push(`ONLY ONCE <b>${d.onlyOnce.join(', ')}</b>`);
+    todayStats.innerHTML = lines.join('<br>');
+    if (!bwChart.classList.contains('open')) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = 306, H = 44;
+    if (todayCanvas.width !== W * dpr) {
+      todayCanvas.width = W * dpr;
+      todayCanvas.height = H * dpr;
+      todayCanvas.style.width = W + 'px';
+      todayCanvas.style.height = H + 'px';
+    }
+    todayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    todayCtx.clearRect(0, 0, W, H);
+    const max = Math.max(1, ...d.hours);
+    const nowH = new Date().getHours();
+    const slot = W / 24;
+    for (let i = 0; i < 24; i++) {
+      const n = d.hours[i];
+      todayCtx.globalAlpha = i > nowH ? 0.2 : 1; // hours still to come
+      todayCtx.fillStyle = COLORS.chartMuted;
+      todayCtx.fillRect(i * slot + 1, H - 1, slot - 2, 1);
+      if (!n) continue;
+      const t = n / max;
+      todayCtx.globalAlpha = i === nowH ? 0.6 : 0.95; // this hour is still filling
+      todayCtx.fillStyle = n === max ? COLORS.chartPeak : lerpHex(COLORS.chartLow, COLORS.chartHigh, t);
+      const h = Math.max(2, t * (H - 4));
+      todayCtx.beginPath();
+      todayCtx.roundRect(i * slot + 1, H - h, slot - 2, h, 2);
+      todayCtx.fill();
+    }
+    todayCtx.globalAlpha = 1;
+  }
+  loadToday();
+  setInterval(() => { if (!paused) loadToday(); }, 60000);
+
   // Settings panel always starts closed — open state is not persisted
   bwEl.addEventListener('click', () => {
     bwChart.classList.toggle('open');
     drawBwChart();
     drawBwBars();
+    if (bwChart.classList.contains('open')) loadToday();
   });
   bwCanvas.addEventListener('mousemove', (e) => {
     if (!bwHistory.length) return;
@@ -3206,15 +3269,18 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   function updateBar(overheadCount, ov, next) {
     const detail = barDetail(ov, next);
     setText(el.detail, 'detail', detail ? ` · ${detail}` : '');
-    setText(el.chip, 'chip', ov ? `OVERHEAD · ${detail}` : detail);
+    // With nothing overhead or on the way, the wall chip shows the day so far.
+    const quiet = !detail && todayData
+      ? `TODAY · ${todayData.aircraft.toLocaleString()} AIRCRAFT · ${todayData.overhead} OVERHEAD` : '';
+    setText(el.chip, 'chip', ov ? `OVERHEAD · ${detail}` : detail || quiet);
     if (cached.detailOv !== !!ov) {
       cached.detailOv = !!ov;
       el.detail.classList.toggle('now', !!ov);
       el.chip.classList.toggle('now', !!ov);
     }
-    if (cached.chipOn !== !!detail) {
-      cached.chipOn = !!detail;
-      el.chip.classList.toggle('show', !!detail);
+    if (cached.chipOn !== !!(detail || quiet)) {
+      cached.chipOn = !!(detail || quiet);
+      el.chip.classList.toggle('show', cached.chipOn);
     }
     setText(el.count, 'count', String(targets.size));
     setText(el.overhead, 'overhead', String(overheadCount));

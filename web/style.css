@@ -704,6 +704,18 @@ body.wall .swatch { width: 36px; height: 36px; }
   color: var(--bar-ink);
 }
 #bw-stats b { color: var(--bar-bright); font-weight: 600; }
+#today-sum { color: var(--bar-bright); }
+#today-stats {
+  margin: 2px 0 4px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  line-height: 1.6;
+  color: var(--bar-ink);
+}
+#today-stats b { color: var(--bar-bright); font-weight: 600; }
+#today-stats .ovhd { color: var(--warn); }
+body.light #today-stats .ovhd { color: var(--warn-text, #9c5400); }
+#today-stats .mil { color: var(--mil, var(--bad)); }
 #bwmode-row, #density-row {
   display: flex;
   align-items: center;

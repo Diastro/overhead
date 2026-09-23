@@ -92,6 +92,9 @@
     <div id="bw" title="Feed status, data usage, and bandwidth settings"><span id="bw-label">⚙ SETTINGS</span><span id="next-scan"></span></div>
     <div id="bw-chart">
       <div class="hdr"><span>FEED</span><span class="feed"><span class="dot" id="feed-dot"></span> <span id="feed-name">CONNECTING…</span></span></div>
+      <div class="hdr"><span>TODAY · AIRCRAFT BY HOUR</span><span id="today-sum">—</span></div>
+      <canvas id="today-canvas" width="306" height="44"></canvas>
+      <div id="today-stats"></div>
       <div class="hdr"><span>FEED RATE · LAST 60 S</span><span id="bw-cur">—</span></div>
       <canvas id="bw-canvas" width="306" height="84"></canvas>
       <div class="hdr"><span>PER MINUTE · LAST 30 MIN</span><span id="bw-min-peak"></span></div>
