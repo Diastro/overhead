@@ -3457,12 +3457,24 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       SHELL_COMMANDS[msg.cmd](msg.on);
     }
   });
+  // Help overlay: ? key, the SETTINGS button, closed by ✕, Esc or a tap outside.
+  const helpEl = document.getElementById('help');
+  const setHelp = (open) => {
+    helpEl.hidden = !open;
+    if (open) document.getElementById('help-close').focus();
+  };
+  document.getElementById('help-open').addEventListener('click', () => setHelp(true));
+  document.getElementById('help-close').addEventListener('click', () => setHelp(false));
+  helpEl.addEventListener('click', (e) => { if (e.target === helpEl) setHelp(false); });
+
   // Keyboard, for a desktop browser: T theme, S next style, L layers,
   // F or / find, H home, Esc closes the preview. Ignored while typing.
   window.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName)) return;
     const k = e.key.toLowerCase();
+    if (k === 'escape' && !helpEl.hidden) { setHelp(false); return; }
+    if (k === '?') { setHelp(helpEl.hidden); return; }
     if (k === 't') themeToggle.click();
     else if (k === 's') {
       const i = STYLE_LIST.findIndex((st) => st.id === styleId);

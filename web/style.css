@@ -920,6 +920,44 @@ body.wall #alert-banner { font-size: 15px; padding: 11px 24px; }
 /* Embedded in the kiosk shell there is no header bar, so the overhead
    callout ("SWA2291 · B38M · 3,200 FT" / "NEXT … IN 1:40") gets its own chip
    on the glass, bottom centre — the one edge the panels leave free. */
+/* Help: what every colour, line and chip on the scope means. */
+#help {
+  position: absolute;
+  inset: 0;
+  z-index: 950;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+#help[hidden] { display: none; }
+.help-card {
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 16px 20px 18px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  font-family: var(--mono);
+  color: var(--bar-ink);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.help-hd { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+  font-size: 12px; letter-spacing: 0.16em; color: var(--bar-bright); }
+#help-close { min-width: 32px; min-height: 32px; border: 1px solid var(--panel-border); border-radius: 5px;
+  background: transparent; color: var(--bar-ink); cursor: pointer; font: inherit; }
+.help-card dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; }
+.help-card dt { font-size: 10.5px; letter-spacing: 0.12em; color: var(--accent); padding-top: 2px; text-transform: uppercase; }
+.help-card dd { margin: 0; font-size: 12px; line-height: 1.55; letter-spacing: 0.02em; }
+.help-card kbd { padding: 0 5px; border: 1px solid var(--panel-border); border-radius: 3px; color: var(--bar-bright); font: inherit; }
+body.wall .help-card dd { font-size: 15px; }
+@media (max-width: 520px) { .help-card dl { grid-template-columns: 1fr; gap: 2px 0; } .help-card dd { margin-bottom: 8px; } }
+#help-open { display: block; width: calc(100% - 28px); margin: 8px 14px 4px; min-height: 30px;
+  border: 1px solid var(--panel-border); border-radius: 5px; background: var(--btn-bg);
+  color: var(--bar-bright); font: 600 10.5px var(--mono); letter-spacing: 0.12em; cursor: pointer; }
 #overhead-chip {
   position: absolute;
   bottom: 14px;

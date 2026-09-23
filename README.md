@@ -185,6 +185,8 @@ vector maps, left their inks under bar on 16–43% of a photo.
   end of the route, altitude, and for inbound flights an estimated time to
   arrival that allows for the descent (`~19 MIN`). On a kiosk the bottom chip
   shows the next arrival when nothing is overhead or on its way over.
+- **Help** — `?` or **⚙ SETTINGS → WHAT AM I LOOKING AT** explains every colour,
+  line and chip on the scope.
 - **Keyboard** (desktop) — `T` theme, `S` next style, `L` layers, `F` or `/`
   find, `H` home, `Esc` cancels a style preview.
 - **Today** — **⚙ SETTINGS** shows the day so far: aircraft seen (each
