@@ -871,6 +871,67 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (li) focusedHex = li.dataset.hex;
   });
 
+  // Airport board: with routes known, the list opens with the nearest big
+  // airport's inbound and outbound flights — the question a home near an
+  // airport actually asks ("is that the one from Honolulu?"). Built from the
+  // same targets and server-checked routes as everything else.
+  const boardEl = document.getElementById('board');
+  let boardAirportsAsked = false;
+  function boardAirport() {
+    if (!airports.length) {
+      if (!boardAirportsAsked) { boardAirportsAsked = true; loadAirports(); }
+      return null;
+    }
+    let best = null, bestD = 30; // NM: a board for an airport you can see
+    for (const a of airports) {
+      if (a.type !== 'large_airport' || !a.iata) continue;
+      const d = distNm(HOME[0], HOME[1], a.lat, a.lon);
+      if (d < bestD) { best = a; bestD = d; }
+    }
+    return best;
+  }
+  function renderBoard() {
+    const ap = boardAirport();
+    if (!ap) { boardEl.replaceChildren(); return; }
+    const inbound = [], outbound = [];
+    for (const t of targets.values()) {
+      const r = t.meta.route;
+      if (!r || t.fix.onGround) continue;
+      const stops = r.split(' → ');
+      const d = distNm(ap.lat, ap.lon, t.shown.lat, t.shown.lon);
+      if (stops[stops.length - 1] === ap.iata) inbound.push([d, t, stops[stops.length - 2]]);
+      else if (stops[0] === ap.iata) outbound.push([d, t, stops[1]]);
+    }
+    const section = (title, rows, word) => {
+      rows.sort((a, b) => a[0] - b[0]);
+      const box = document.createElement('div');
+      box.className = 'board-sec';
+      const hd = document.createElement('div');
+      hd.className = 'board-hd';
+      hd.textContent = `${title} ${ap.iata} · ${rows.length}`;
+      box.appendChild(hd);
+      for (const [d, t, other] of rows.slice(0, 5)) {
+        const row = document.createElement('div');
+        row.className = 'board-row';
+        const alt = t.fix.alt != null ? fmtAlt(t.fix.alt).toUpperCase() : NO_DATA;
+        row.innerHTML = '<b></b><span class="bd-other"></span><span class="bd-d"></span><span class="bd-alt"></span>';
+        row.children[0].textContent = t.meta.callsign || t.meta.reg || t.meta.hex.toUpperCase();
+        row.children[1].textContent = `${word} ${other}`;
+        row.children[2].textContent = `${d.toFixed(0)} NM`;
+        row.children[3].textContent = alt;
+        box.appendChild(row);
+      }
+      if (!rows.length) {
+        const none = document.createElement('div');
+        none.className = 'board-row none';
+        none.textContent = 'NONE RIGHT NOW';
+        box.appendChild(none);
+      }
+      return box;
+    };
+    boardEl.replaceChildren(section('INBOUND', inbound, 'FROM'), section('OUTBOUND', outbound, 'TO'));
+  }
+
   function renderList(force) {
     if (paused) return;   // display:none iframes still run their intervals
     const bounds = map.getBounds();
@@ -883,6 +944,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const countLabel = `\u2708 IN VIEW \u00b7 ${inView.length}`;
     if (listToggle.textContent !== countLabel) listToggle.textContent = countLabel;
     if (!listPanel.classList.contains('open')) return;
+    renderBoard();
     // Distances and ordering are only spent on an open panel — with it closed
     // (the kiosk's normal state) the count above is all this tick owes.
     const rows = inView.map((t) => [distNm(HOME[0], HOME[1], t.shown.lat, t.shown.lon), t]);

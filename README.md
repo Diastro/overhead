@@ -175,6 +175,9 @@ vector maps, left their inks under bar on 16–43% of a photo.
   (keyless; one small file per airline, cached in `data/routes/` for a week),
   and a route is only shown if the aircraft is within 150 NM of it — flight
   numbers get reused across legs, and a wrong route is worse than none.
+- **Airport board** — **✈ IN VIEW** opens with the nearest large airport's
+  (within 30 NM of home) inbound and outbound flights: callsign, the other
+  end of the route, distance to the airport and altitude, five each.
 - **Today** — **⚙ SETTINGS** shows the day so far: aircraft seen (each
   once), how many came overhead, military, emergencies, the busiest hour,
   the most common type and the ones seen only once. The server keeps this

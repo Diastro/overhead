@@ -494,6 +494,23 @@ body.wall #style-preview button { min-height: 40px; }
 #ac-list .l1 { display: flex; justify-content: space-between; color: var(--accent); font-weight: 700; }
 #ac-list .l1 .dist { color: var(--bar-ink); font-weight: 400; }
 #ac-list .l2 { color: var(--muted); font-size: 11px; }
+/* Airport board at the top of the list: inbound / outbound, five each. */
+#board { padding: 2px 0 6px; border-bottom: 1px solid var(--panel-line); margin-bottom: 4px; }
+.board-sec + .board-sec { margin-top: 6px; }
+.board-hd { padding: 4px 14px; font-size: 10px; letter-spacing: 0.14em; color: var(--muted); }
+.board-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  gap: 10px;
+  padding: 3px 14px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--bar-ink);
+}
+.board-row b { color: var(--bar-bright); font-weight: 600; }
+.board-row .bd-d, .board-row .bd-alt { text-align: right; font-variant-numeric: tabular-nums; }
+.board-row.none { display: block; color: var(--muted); }
+body.wall .board-row { font-size: 14px; }
 #ac-list li.mil .l1 { color: var(--mil, var(--bad)); }
 #ac-list li.police .l1 { color: var(--police); }
 #ac-list li.overhead .l1 { color: var(--warn); }
