@@ -353,6 +353,35 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
 .swatch:focus-visible { outline: 2px solid var(--bar-bright); outline-offset: 2px; }
 body.wall #style-swatches { grid-template-columns: repeat(6, 36px); gap: 8px; }
 body.wall .swatch { width: 36px; height: 36px; }
+/* Swatch preview: KEEP / REVERT with a countdown to automatic revert. */
+#style-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--bar-ink);
+}
+#style-preview[hidden] { display: none; }
+#style-preview span { flex: 1; }
+#style-preview b { color: var(--bar-bright); }
+#style-preview button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  background: var(--btn-bg);
+  color: var(--bar-bright);
+  font: inherit;
+  cursor: pointer;
+}
+#preview-keep { border-color: var(--accent); }
+body.wall #style-preview { font-size: 12px; }
+body.wall #style-preview button { min-height: 40px; }
 /* The style's description, as text: a touch panel never shows a tooltip. */
 #style-note {
   max-width: 250px;

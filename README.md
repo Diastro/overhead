@@ -115,7 +115,8 @@ Never put it in `config.json`: that file is committed.
 ## Map styles
 
 **◧ LAYERS → STYLE** picks the whole look — basemap colours, aircraft inks,
-chrome — from the dropdown or by tapping a swatch. The theme button cycles
+chrome — from the dropdown, or by tapping a swatch, which previews for ten
+seconds with KEEP / REVERT before reverting on its own. The theme button cycles
 ☾ dark → ☀ light → ◐ **auto**, which follows the sun at home (light from civil
 dawn to civil dusk). Styles live in `web/styles.js`.
 

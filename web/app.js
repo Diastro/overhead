@@ -2184,10 +2184,44 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       btn.setAttribute('aria-label', st.label);
       btn.title = st.label;
       btn.style.background = `linear-gradient(135deg, ${w} 0 48%, ${l} 48% 78%, ${b} 78%)`;
-      btn.addEventListener('click', () => setStyle(st.id));
+      btn.addEventListener('click', () => previewStyle(st.id));
       swatchBox.appendChild(btn);
     }
   }
+  // Tapping a swatch PREVIEWS: the look applies at once, and a KEEP / REVERT
+  // bar counts down ten seconds before reverting on its own. A wall panel
+  // gets tapped by people walking past; a stray tap should not restyle it
+  // for good. The dropdown is a deliberate choice and applies outright.
+  const PREVIEW_S = 10;
+  const previewBar = document.getElementById('style-preview');
+  const previewLeft = document.getElementById('preview-left');
+  let preview = null; // { from, until, timer }
+  function endPreview(keep) {
+    if (!preview) return;
+    clearInterval(preview.timer);
+    const from = preview.from;
+    preview = null;
+    previewBar.hidden = true;
+    if (!keep) setStyle(from);
+  }
+  function previewStyle(id) {
+    if (id === styleId && !preview) return;
+    if (!preview) preview = { from: styleId };
+    else clearInterval(preview.timer);
+    if (id === preview.from) { endPreview(true); setStyle(id); return; }
+    setStyle(id);
+    preview.until = Date.now() + PREVIEW_S * 1000;
+    const tick = () => {
+      const left = Math.ceil((preview.until - Date.now()) / 1000);
+      if (left <= 0) return endPreview(false);
+      previewLeft.textContent = `${left}s`;
+    };
+    previewBar.hidden = false;
+    tick();
+    preview.timer = setInterval(tick, 250);
+  }
+  document.getElementById('preview-keep').addEventListener('click', () => endPreview(true));
+  document.getElementById('preview-revert').addEventListener('click', () => endPreview(false));
   function showStyle(st) {
     styleSelect.value = st.id;
     styleSelect.title = st.note;
@@ -2208,7 +2242,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       flashAlert(`${st.label} NEEDS A KEYLESS BASEMAP — ${currentBasemap().label} STAYS CLASSIC`, 6000);
     }
   }
-  styleSelect.addEventListener('change', () => setStyle(styleSelect.value));
+  styleSelect.addEventListener('change', () => { if (preview) endPreview(true); setStyle(styleSelect.value); });
   // Boot. A basemap chosen before styles existed only ever lived in
   // 'overhead-basemap'; adopt it as the user's pick, or the first style
   // change would replace it for good. Then give the starting style its
