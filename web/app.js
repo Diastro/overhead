@@ -3137,6 +3137,27 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       SHELL_COMMANDS[msg.cmd](msg.on);
     }
   });
+  // Panels tidy themselves on a kiosk. Someone taps LAYERS on the wall,
+  // changes a switch and walks away; the panel then covered a third of the
+  // map for days. Embedded, open panels close after two minutes without a
+  // touch (panel_autoclose_seconds; 0 turns it off). Closing goes through each
+  // panel's own toggle, so the closed state persists like a manual close.
+  if (EMBED) {
+    const idleMs = (config.panel_autoclose_seconds ?? 120) * 1000;
+    let lastTouch = Date.now();
+    for (const ev of ['pointerdown', 'keydown', 'wheel']) {
+      window.addEventListener(ev, () => { lastTouch = Date.now(); }, { passive: true, capture: true });
+    }
+    const panels = [['layers-panel', 'layers-toggle'], ['list-panel', 'list-toggle'],
+      ['home-panel', 'home-toggle'], ['find-panel', 'find-toggle']];
+    if (idleMs > 0) setInterval(() => {
+      if (Date.now() - lastTouch < idleMs) return;
+      for (const [p, t] of panels) {
+        if (document.getElementById(p)?.classList.contains('open')) document.getElementById(t)?.click();
+      }
+    }, 5000);
+  }
+
   // Announce readiness so the shell can re-assert visibility to a slow loader.
   if (EMBED && window.parent !== window) {
     window.parent.postMessage({ source: 'edge-app', type: 'ready', app: 'overhead' }, '*');
