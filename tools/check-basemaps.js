@@ -84,8 +84,12 @@ async function probe(url) {
   for (const p of providers) {
     console.log(`\n${p.label}  (${p.id})`);
     const native = p.maxNativeZoom ?? p.maxZoom;
-    for (const theme of BASEMAPS.THEMES) {
-      const spec = p[theme];
+    // `styled` is what the gradient-map styles (web/styles.js) draw from —
+    // its own layer list and a labels pair, probed like a third theme.
+    for (const theme of [...BASEMAPS.THEMES, 'styled']) {
+      const spec = theme === 'styled'
+        ? p.styled && { layers: p.styled.layers, labels: p.styled.labels?.light, labelsDark: p.styled.labels?.dark }
+        : p[theme];
       if (!spec) continue;
       // A composite theme carries `layers` instead of a single url, and the
       // first version of this loop read only `spec.url` — so a provider built
@@ -94,6 +98,7 @@ async function probe(url) {
       const parts = (spec.layers || [{ url: spec.url }])
         .map((l, i) => [spec.layers ? `layer${i}` : 'base', l.url]);
       parts.push(['labels', spec.labels]);
+      if (spec.labelsDark) parts.push(['labels-dark', spec.labelsDark]);
       for (const [layer, tmpl] of parts) {
         if (!tmpl) continue;
         // Scoped to this one URL template: the comparison is "does this

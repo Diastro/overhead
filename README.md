@@ -85,6 +85,8 @@ switchable from the **◧ LAYERS** panel:
 |---|---|---|
 | **Esri Canvas** (default) | Dark Gray / Light Gray + place names | Closest to the basemap Overhead used to ship. ~8 KB a tile. Its data stops at zoom 16 — past that the last real tile is upscaled, so very close zooms go soft rather than blank. |
 | **OpenStreetMap** | Standard; the dark theme is derived in CSS | ~30 KB a tile and busier, but it is the one provider with a published policy that permits this use. |
+| **Terrain** | Esri hillshade under the canvas | Landform relief; roughly double the tiles. |
+| **Esri Imagery** | Satellite photography | The heaviest tiles here (10-40 KB each). Built for the ORBITAL style. |
 
 Repeated tile errors switch providers on their own and say so on the glass.
 That switch is not persisted — an outage should not overwrite a choice you
@@ -110,6 +112,35 @@ in `config.local.json` — which is gitignored — and a third option appears:
 
 Never put it in `config.json`: that file is committed.
 
+## Map styles
+
+**◧ LAYERS → STYLE** picks the whole look — basemap colours, aircraft inks,
+chrome — and the ☾/☀ button picks its dark or light half. Styles live in
+`web/styles.js`.
+
+| Style | Dark | Light |
+|---|---|---|
+| **Classic** (default) | Slate navy | Warm ivory |
+| **Radar Phosphor** | Green radar glass, scanlines, a slow sweep | Sage "daylight scope" |
+| **VFR Sectional** | Cockpit red — military turns white to stay distinct | Tan land, yellow towns, magenta rings |
+| **Cyanotype** | Chalk coastlines on Prussian blue, drafting grid | Whiteprint; traffic goes coral |
+| **ECDIS Nautical** | IHO S-52 Night, shoal bands along the coast | S-52 Day: buff land, white deep water |
+| **Swiss Relief** | Moonlit ridges | Parchment with violet shadows |
+| **Golden / Blue Hour** | Indigo dusk | Honey land, teal water |
+| **Jet-Age Route Map** | Gold coastlines on midnight navy | Cream paper, teal sea, poster-red routes |
+| **Risograph** | Fluoro pink and blue on black, halftone | Pink and blue on newsprint |
+| **Orbital** | Satellite imagery, night side with city lights | Bleached daylight imagery |
+| **E-ink** | Grey map, colour only on data | Greyscale newsprint |
+
+Swiss Relief switches the basemap to Terrain when you pick it, and Orbital
+switches to Esri Imagery. You can change the basemap afterwards. Every
+style except Classic recolours the tiles through SVG gradient-map filters
+calibrated per provider (the keyed CARTO entry keeps its classic look).
+
+`npm run check:styles` measures every style's inks against the map colours
+that style paints: 4.5:1 for aircraft, overhead, trails and text, 3:1 for
+rings and leader lines. Run it after changing a palette.
+
 ## Why not FlightRadar24 on a tablet?
 
 - No account, no subscription, no ads, no nag screens — ever
@@ -133,10 +164,12 @@ web/            The display: Leaflet basemap + one canvas overlay drawing
                 everything (icons, trails, data blocks, rings, airports,
                 airspace). Dead-reckons aircraft between feed snapshots for
                 smooth motion. Vendored Leaflet — no CDN at runtime.
-                basemaps.js holds the keyless tile providers.
+                basemaps.js holds the keyless tile providers; styles.js
+                the map styles and the scope's base palettes.
 tools/          check-basemaps.js — fetches a real tile from every provider
                 so a withdrawn service is caught by `npm run check:basemaps`
-                rather than by looking at the wall.
+                rather than by looking at the wall. check-styles.js —
+                contrast of every style's inks on its own map.
 data/           Machine-written caches and counters (gitignored).
 ```
 
@@ -155,7 +188,8 @@ Code is MIT licensed (see `LICENSE`). Bundled/consumed third parties:
 - [Leaflet](https://leafletjs.com) — BSD-2-Clause (vendored; see
   `web/vendor/LEAFLET-LICENSE.txt`)
 - Basemaps: [Esri](https://www.esri.com) Dark/Light Gray Canvas (Esri, HERE,
-  Garmin, © OpenStreetMap contributors) and the
+  Garmin, © OpenStreetMap contributors), World Hillshade, World Imagery
+  (Esri, Maxar, Earthstar Geographics, and the GIS User Community) and the
   [OpenStreetMap](https://www.openstreetmap.org/copyright) standard layer —
   attribution must stay visible in the app
 - Live aircraft data: [airplanes.live](https://airplanes.live) /

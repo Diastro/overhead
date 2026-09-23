@@ -171,6 +171,17 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   let basemapId = localStorage.getItem('overhead-basemap');
   if (!basemapList.some((p) => p.id === basemapId)) basemapId = basemapList[0].id;
   let themeName = 'dark';
+  // Map style (web/styles.js): CLASSIC runs on the per-provider filters
+  // above; every other style recolours a provider's `styled` source through
+  // SVG gradient-map filters that live in #style-filters.
+  const STYLE_LIST = MAPSTYLES.STYLES;
+  let styleId = localStorage.getItem('overhead-style');
+  if (!STYLE_LIST.some((s) => s.id === styleId)) styleId = STYLE_LIST[0].id;
+  // The half of the current style for the current theme, or null for CLASSIC.
+  function styleHalf() {
+    const st = MAPSTYLES.byId(styleId);
+    return st.classic ? null : st[themeName];
+  }
   let tileLayers = [];            // [base] or [base, labels]
   const basemapTried = new Set(); // providers an automatic failover already burned
 
@@ -183,7 +194,20 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // invisible until the map next moves.
   function applyBasemap() {
     const provider = currentBasemap();
-    const spec = provider[themeName] || provider.dark;
+    const half = styleHalf();
+    // A styled look needs a source the gradient maps were calibrated on. A
+    // provider without one (the keyed CARTO entry) keeps its classic recipe
+    // rather than being run through coefficients measured on someone else's
+    // tiles.
+    const spec = half && provider.styled
+      ? {
+          layers: provider.styled.layers.map((l) => (l.relief
+            ? { url: l.url, filter: 'url(#ms-relief)', blend: 'multiply', opacity: half.map.relief?.op ?? 0.6 }
+            : { url: l.url, filter: `url(#ms-base-${l.src})` })),
+          labels: provider.styled.labels?.[MAPSTYLES.labelKind(half.map)],
+          labelsFilter: 'url(#ms-labels)',
+        }
+      : provider[themeName] || provider.dark;
     const opts = {
       maxZoom: provider.maxZoom,
       // Beyond a provider's real data, Leaflet upscales its last good tile
@@ -241,6 +265,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     basemapId = id;
     if (persist) {
       localStorage.setItem('overhead-basemap', id);
+      // What YOU picked, as distinct from what a style moved you to — see
+      // setStyle(), which returns here when you leave that style.
+      localStorage.setItem('overhead-basemap-user', id);
       basemapTried.clear(); // a deliberate choice re-arms automatic failover
     }
     applyBasemap();
@@ -1828,115 +1855,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     applyDensity(m === 'compact' || m === 'wall' ? m : 'comfortable');
   }
 
-  // Palette rules: a hue means the same thing in both themes (cyan=aircraft,
-  // gold=overhead, red=military, blue=police, green=climb). Dark uses vivid
-  // high-chroma inks against the near-black map; light uses deep saturated
-  // inks (not pastels) that hold 4.5:1+ contrast on the cream basemap.
-  const THEMES = {
-    dark: {
-      // Re-derived after the dark basemap was lifted for coastline contrast.
-      // Raising the land from #181820 to #333848 cost roughly 1.2 stops of
-      // headroom, and eight of these inks quietly dropped under their bar — a
-      // reminder that the palette and the basemap filter are one system, not
-      // two settings.
-      icon: '#38bdff', trail: '#56aaeb', leader: '#5b89ac',
-      // Altitude ramp, low → high. One cool hue family so the scope stays calm;
-      // brightness carries the altitude. Dark theme: higher is brighter.
-      //
-      // Same whole-ramp treatment as the light theme, mirrored: here the
-      // DARKEST band is what the contrast limit binds, so it sits at the floor
-      // and the rest space evenly in L* up to near-white. The old ramp started
-      // at #1c6ea8, which measured 2.14:1 on the lifted land — a lowest-band
-      // target you could not pick out from the map behind it.
-      // Contrasts 4.62 / 5.78 / 7.12 / 8.73 / 10.57, monotonic, min step 7.1 L*.
-      altBands: ['#2aadee', '#6ac0f0', '#9cd1f2', '#c6e3f6', '#ecf5fc'],
-      iconHalo: 'rgba(4,10,18,0.85)',
-      // The *Edge values are not interior chrome: drawBlock() fills the block
-      // and then strokes it, so half the stroke width lands on bare map, and a
-      // tagged block's leader line is drawn in `edge` across open map. They
-      // have to clear contrast against the basemap like any other on-map ink.
-      // blockEdge is the widest exposure of all — it borders every ordinary
-      // aircraft — and it measured 2.39:1.
-      blockBg: 'rgba(12,24,38,0.92)', blockEdge: '#86a6c7',
-      amber: '#ffbe2e', amberEdge: '#d99b17', amberBg: 'rgba(26,20,8,0.94)',
-      mil: '#ff7b6a', milEdge: '#e8897d', milBg: 'rgba(30,10,8,0.93)',
-      dim: '#77879a',
-      // Neutral slate, not radar-green: the rings are a measuring grid, and
-      // saturated green reads as decoration and competes with the targets.
-      // Lightened just past the 3:1 graphical floor — it measured 1.95:1 on
-      // the Esri dark map, which is a grid you cannot actually read a range
-      // off. Hue and saturation are unchanged, so it stays a quiet slate
-      // rather than becoming another thing competing for attention.
-      ring: '#6f86a0', ringText: '#8fa2b5', ringLabelBg: 'rgba(8,14,22,0.82)',
-      home: '#e8f0f7',
-      airport: '#84a9cc',
-      textNormal: ['#4cc7ff', '#eaf4fd', '#ffc95e', '#a9bed2'],
-      textOverhead: ['#ffbe2e', '#f9ecca', '#ffd166', '#cfb87e'],
-      textMil: ['#ff7d66', '#fadfd9', '#ffb09e', '#cfa094'],
-      tagText: '#140f04',
-      chartMuted: '#5a6c7e',
-      chartLow: '#2e6f9c', chartHigh: '#38bdff', chartPeak: '#ffbe2e',
-      vsUp: '#22df82', vsDown: '#ff5540', vsFlat: '#8b9cae',
-      police: '#7aa1ff', policeEdge: '#87a0f1', policeBg: 'rgba(10,14,34,0.93)',
-      policeFlash: '#cfe0ff',
-      policeWhite: '#eef4ff', // stripe partner for the police livery
-      textPolice: ['#93b1ff', '#e4ebff', '#b9c8f5', '#96a7e4'],
-      hiMix: 0.55, // how far the selected-block border lightens toward white
-    },
-    light: {
-      // Every value here that lands ON the map was re-derived against the
-      // actual rendered light basemap (#e5ebe8 — the paler of the two, so the
-      // stricter one), not against the cream chrome. The old set was tuned by
-      // eye and most of it failed AA badly: the trail at 2.31:1, the overhead
-      // amber at 1.89:1. Each was darkened along L with its hue and saturation
-      // held, so a colour still means what it meant.
-      icon: '#0764ab', trail: '#14669f', leader: '#8a8774',
-      // Light theme inverts the ramp: on cream, higher reads as *deeper* ink,
-      // so prominence still grows with altitude instead of washing out.
-      //
-      // The ramp could not be fixed band by band. Pushing each one to 4.5:1
-      // individually collapsed the lowest three onto the same luminance and
-      // destroyed the altitude encoding — five bands, three of them identical.
-      // It has to be designed as a whole: the LIGHTEST band is what the 4.5:1
-      // limit binds, so it sits there, and the rest are spaced evenly in L*
-      // down to near-black. Contrasts 4.54 / 6.03 / 7.92 / 10.23 / 12.71,
-      // monotonic, min step 7.5 L*.
-      altBands: ['#116daf', '#0e5a90', '#0b4874', '#093758', '#06273e'],
-      iconHalo: 'rgba(255,255,255,0.92)',
-      blockBg: 'rgba(253,250,243,0.94)', blockEdge: '#6e6142',
-      // The overhead marker is the most important thing on the scope and was
-      // the worst offender at 1.89:1. amberEdge is worse than it looks: it is
-      // both the overhead block's border AND the leader line drawn from the
-      // target across open map, so it was failing at 2.21:1 in the one place
-      // it most needed not to. Only the *Bg values are genuinely interior.
-      amber: '#8c5500', amberEdge: '#925300', amberBg: 'rgba(253,246,227,0.96)',
-      mil: '#bc281b', milEdge: '#ba2b1d', milBg: 'rgba(250,235,231,0.96)',
-      dim: '#7d8980',
-      // Rings and leader lines are guides, so 3:1 is the bar, not 4.5.
-      ring: '#8f856a', ringText: '#6d7a86', ringLabelBg: 'rgba(253,250,243,0.86)',
-      home: '#34435a',
-      airport: '#4a6b8a',
-      textNormal: ['#0a72c4', '#2b3640', '#d97706', '#57646f'],
-      textOverhead: ['#d97706', '#4a3a0c', '#d97706', '#8a7440'],
-      textMil: ['#d0301f', '#4a201a', '#b8402e', '#8a5f56'],
-      tagText: '#402f08',
-      chartMuted: '#9aa1a8',
-      chartLow: '#7db8dd', chartHigh: '#0a7fd9', chartPeak: '#f59500',
-      // These sit on the data block's own panel, not on the map, so they are
-      // measured against blockBg. vsDown used to be byte-identical to `mil`
-      // (#e03526) — every descending airliner's trend arrow was painted the
-      // exact colour reserved for "military or flagged", which dilutes the one
-      // red that is supposed to mean something. Now distinct, and both clear
-      // 4.5:1 on the panel (was 4.28 and 3.14).
-      vsUp: '#0e7c46', vsDown: '#b8391f', vsFlat: '#7f8a95',
-      police: '#2c52e6', policeEdge: '#2c52e6', policeBg: 'rgba(233,238,252,0.96)',
-      policeFlash: '#7fa0f0',
-      policeWhite: '#ffffff', // stripe partner for the police livery
-      textPolice: ['#1a37a8', '#252f45', '#31479c', '#4b5b8c'],
-      hiMix: 0.3, // lighter mix on the cream background so the border stays visible
-    },
-  };
+  // Base palettes live in web/styles.js (BASE_INKS) with the map styles, so
+  // tools/check-styles.js measures the same inks the scope paints. A style
+  // overrides some of them per theme; see currentInks().
+  const THEMES = MAPSTYLES.BASE_INKS;
   let COLORS = THEMES.dark;
+  let styleFx = {};   // the live style's effects; the sweep is drawn per frame
 
   // The ramp swatches are the key to the altitude shading, so they have to be
   // repainted from whichever palette is live.
@@ -1945,20 +1869,99 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     legendSwatches.forEach((el, i) => { el.style.background = COLORS.altBands[i]; });
   }
 
+  // Style + theme → everything that paints: the scope's inks, the chrome's
+  // custom properties, the SVG filters the tiles run through, the effect
+  // layer, and the tiles themselves. One entry point, because they are one
+  // system — tools/check-styles.js measures the inks against the map colours
+  // they will actually sit on.
+  const styleDefs = document.querySelector('#style-filters defs');
+  const fxLayers = document.querySelector('#map-fx .fx-layers');
+  const fxGrain = document.querySelector('#map-fx .fx-grain');
+  const { CHROME_VARS } = MAPSTYLES;
+  function paintFx(fx) {
+    const bg = [];
+    if (fx.scan) bg.push(`repeating-linear-gradient(to bottom, rgba(0,0,0,${fx.scan}) 0 1px, transparent 1px 3px)`);
+    if (fx.vignette) bg.push(`radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0,0,0,${fx.vignette}) 100%)`);
+    if (fx.wash) bg.push(`linear-gradient(to bottom, ${hexA(fx.wash[0], 0)}, ${hexA(fx.wash[1], fx.wash[2])})`);
+    if (fx.grid) {
+      const c = hexA(fx.grid.color, fx.grid.op), z = fx.grid.size;
+      bg.push(`repeating-linear-gradient(to right, ${c} 0 1px, transparent 1px ${z}px)`,
+        `repeating-linear-gradient(to bottom, ${c} 0 1px, transparent 1px ${z}px)`);
+    }
+    fxLayers.style.background = bg.join(', ');
+    // Halftone is a tiled dot, so it needs its own size; it rides on the
+    // grain element's background stack (below the noise) to keep one blend.
+    const g = [];
+    if (fx.grain) {
+      g.push(`url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='${fx.grain.op * 4}'/></svg>")`);
+    }
+    if (fx.halftone) g.push(`radial-gradient(${hexA(fx.halftone.color, fx.halftone.op * 3)} 0.9px, transparent 1.4px) 0 0 / 5px 5px`);
+    fxGrain.style.background = g.join(', ');
+    fxGrain.style.mixBlendMode = fx.grain?.blend || 'normal';
+    fxGrain.style.opacity = fx.grain ? '0.25' : '0.33';
+  }
+  function applyLook() {
+    const half = styleHalf();
+    COLORS = { ...THEMES[themeName], ...(half?.inks || {}) };
+    paintAltLegend();
+    stripeCache = {}; // livery patterns bake theme colors — rebuild lazily
+    styleDefs.innerHTML = half ? MAPSTYLES.filterDefs(MAPSTYLES.byId(styleId), themeName, 'ms') : '';
+    const vars = half ? MAPSTYLES.chromeVars(half) : {};
+    for (const k of CHROME_VARS) {
+      if (vars[k]) document.body.style.setProperty(k, vars[k]);
+      else document.body.style.removeProperty(k);
+    }
+    styleFx = half?.fx || {};
+    paintFx(styleFx);
+    applyBasemap();
+  }
+
   const themeToggle = document.getElementById('theme-toggle');
   function applyTheme(name) {
-    COLORS = THEMES[name] || THEMES.dark;
-    paintAltLegend();
     document.body.classList.toggle('light', name === 'light');
     themeName = name === 'light' ? 'light' : 'dark';
-    applyBasemap();
     themeToggle.textContent = name === 'light' ? '☀' : '☾';
-    stripeCache = {}; // livery patterns bake theme colors — rebuild lazily
     localStorage.setItem('overhead-theme', name);
+    applyLook();
   }
   themeToggle.addEventListener('click', () => {
     applyTheme(document.body.classList.contains('light') ? 'dark' : 'light');
   });
+
+  // Style picker, beside the basemap one in the LAYERS panel. A style that is
+  // built for a particular source (SWISS RELIEF needs the hillshade, ORBITAL
+  // the imagery) moves the basemap there when it is picked; the basemap
+  // picker still overrides it afterwards. Leaving that style goes back to the
+  // basemap you chose yourself — otherwise one look at ORBITAL would leave the
+  // wall pulling imagery-weight tiles under every style after it.
+  const styleSelect = document.getElementById('style-select');
+  STYLE_LIST.forEach((st) => {
+    const opt = document.createElement('option');
+    opt.value = st.id;
+    opt.textContent = st.label;
+    opt.title = st.note;
+    styleSelect.appendChild(opt);
+  });
+  function setStyle(id) {
+    if (!STYLE_LIST.some((st) => st.id === id)) return;
+    styleId = id;
+    localStorage.setItem('overhead-style', id);
+    styleSelect.value = id;
+    const st = MAPSTYLES.byId(id);
+    styleSelect.title = st.note;
+    const has = (pid) => pid && basemapList.some((p) => p.id === pid);
+    const userPick = localStorage.getItem('overhead-basemap-user');
+    const target = has(st.prefers) ? st.prefers : has(userPick) ? userPick : basemapList[0].id;
+    if (target !== basemapId) {
+      basemapId = target;
+      localStorage.setItem('overhead-basemap', target);
+      basemapTried.clear();
+    }
+    applyLook();
+  }
+  styleSelect.value = styleId;
+  styleSelect.title = MAPSTYLES.byId(styleId).note;
+  styleSelect.addEventListener('change', () => setStyle(styleSelect.value));
   applyTheme(localStorage.getItem('overhead-theme') || 'dark');
 
   // ATC full data block, top to bottom: who / how high / how fast + what.
@@ -2282,6 +2285,33 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }
   }
 
+  // RADAR PHOSPHOR's sweep: a beam turning about home once every six
+  // seconds with a fading afterglow behind it. Pure decoration, so it is the
+  // first thing reduced motion takes away — it stays as a still wedge.
+  const SWEEP_PERIOD_MS = 6000;
+  function drawSweep(now) {
+    if (typeof ctx.createConicGradient !== 'function') return;
+    const p = toPx(HOME[0], HOME[1], { x: 0, y: 0 });
+    const a = REDUCED_MOTION ? -Math.PI / 2 : ((now % SWEEP_PERIOD_MS) / SWEEP_PERIOD_MS) * Math.PI * 2 - Math.PI / 2;
+    // The gradient runs clockwise from its start angle, so the leading edge
+    // sits at the END (1.0) and the afterglow fades out behind it.
+    const g = ctx.createConicGradient(a - Math.PI * 0.5, p.x, p.y);
+    const c = styleFx.sweep;
+    g.addColorStop(0, hexA(c, 0));
+    g.addColorStop(0.72, hexA(c, 0));
+    g.addColorStop(0.995, hexA(c, 0.2));
+    g.addColorStop(1, hexA(c, 0));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    const r = Math.hypot(canvas.clientWidth, canvas.clientHeight);
+    ctx.strokeStyle = hexA(c, 0.45);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r);
+    ctx.stroke();
+  }
+
   // Home marker draws regardless of the rings layer
   function drawHome() {
     const homePt = toPx(HOME[0], HOME[1]);
@@ -2470,6 +2500,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }
     syncProjection(); // one read of map state for every projection this frame
 
+    if (styleFx.sweep) drawSweep(now);
     if (layers.rings) drawRings();
     drawHome();
     if (layers.scale) drawScale();
@@ -2807,6 +2838,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     icao: (on) => setLayer('icao', on),
     maplabels: (on) => setLayer('maplabels', on),
     basemap: (id) => setBasemap(id),
+    style: (id) => setStyle(id),
     list: () => listToggle.click(),
     settings: () => bwEl.click(),
   };

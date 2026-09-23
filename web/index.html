@@ -19,6 +19,7 @@
   </header>
   <main id="stage">
     <div id="map"></div>
+    <div id="map-fx" aria-hidden="true"><i class="fx-layers"></i><i class="fx-grain"></i></div>
     <canvas id="scope"></canvas>
     <div id="range-ctl">
       <label for="range">VIEW <b id="range-val">13</b> NM</label>
@@ -45,6 +46,10 @@
       <div id="basemap-row">
         <label for="basemap-select">BASEMAP</label>
         <select id="basemap-select" title="All of these are keyless. If one stops serving tiles, switch here."></select>
+      </div>
+      <div id="style-row">
+        <label for="style-select">STYLE</label>
+        <select id="style-select"></select>
       </div>
       <div id="alt-legend">
         <span class="t">ALTITUDE</span>
@@ -107,7 +112,9 @@
     </div>
   </main>
   <script src="/vendor/leaflet.js"></script>
+  <svg id="style-filters" width="0" height="0" aria-hidden="true" focusable="false"><defs></defs></svg>
   <script src="/basemaps.js"></script>
+  <script src="/styles.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

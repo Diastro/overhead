@@ -37,6 +37,19 @@
   const esri = (service) =>
     `https://services.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/{z}/{y}/{x}`;
 
+  // What the gradient-map styles in web/styles.js draw from. Unlike the
+  // per-theme recipes below, one source serves both themes: a style recolours
+  // it end to end, so what matters is that it separates water, land, built-up
+  // and roads cleanly, not what colour it arrives in. `src` names the
+  // normalisation styles.js applies to it. Esri's LIGHT canvas is the source
+  // for both themes because it spreads those classes across the widest range
+  // of values; the dark canvas packs land and water into two greys.
+  const ESRI_LABELS = {
+    dark: esri('Canvas/World_Dark_Gray_Reference'),
+    light: esri('Canvas/World_Light_Gray_Reference'),
+  };
+  const CANVAS_STYLED = { url: esri('Canvas/World_Light_Gray_Base'), src: 'esriCanvas' };
+
   // The keyless set, in preference order — the first is the default, and an
   // automatic failover walks the list in this order.
   const KEYLESS_BASE = [
@@ -54,6 +67,7 @@
       // the failure this file exists to prevent. maxNativeZoom makes Leaflet
       // upscale the last real tile instead: blurry, but a map.
       maxNativeZoom: 16,
+      styled: { layers: [CANVAS_STYLED], labels: ESRI_LABELS },
       dark: {
         url: esri('Canvas/World_Dark_Gray_Base'),
         labels: esri('Canvas/World_Dark_Gray_Reference'),
@@ -164,6 +178,7 @@
     },
     {
       id: 'osm',
+      styled: { layers: [{ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', src: 'osm' }] },
       label: 'OPENSTREETMAP',
       note: 'Standard OSM tiles from the OSM Foundation — heavier (~30 KB/tile) and busier, but the one provider with a published policy that permits this',
       attribution: OSM_ATTR,
@@ -224,6 +239,13 @@
     attribution: ESRI_ATTR,
     maxZoom: 19,
     maxNativeZoom: 16,
+    // Styled: the canvas recoloured, with the hillshade multiplied over it
+    // through the style's own shadow colour — a relief that belongs to the
+    // style (violet for SWISS RELIEF) instead of a neutral grey one.
+    styled: {
+      layers: [CANVAS_STYLED, { url: esri('Elevation/World_Hillshade'), relief: true }],
+      labels: ESRI_LABELS,
+    },
     dark: {
       layers: [
         { url: esri('Elevation/World_Hillshade'), filter: 'invert(1) brightness(.5) contrast(1.1)' },
@@ -246,6 +268,39 @@
       ],
       labels: esri('Canvas/World_Light_Gray_Reference'),
       // No labelsFilter, for the reason recorded on the esri light theme.
+    },
+  };
+
+  // Satellite photography, for the ORBITAL style — which recolours it into a
+  // night side or a bleached day — and for anyone who simply wants a photo
+  // under the scope. Keyless like the rest. The heaviest tiles here by a wide
+  // margin (10-40 KB of JPEG against the canvas's ~8), so it is never a
+  // default and sits last in the failover order.
+  //
+  // Real imagery reaches z19 over cities, and above that Esri answers with
+  // the same 2521-byte "not yet available" placeholder as the Canvas (checked
+  // in Seattle, Sep 2026). Rural coverage stops sooner, so 18 is the ceiling
+  // that is real nearly everywhere; Leaflet upscales beyond it.
+  const IMAGERY = {
+    id: 'imagery',
+    label: 'ESRI IMAGERY',
+    note: 'Satellite imagery — the heaviest tiles here (10-40 KB each); the ORBITAL style is built on it',
+    attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    maxZoom: 19,
+    maxNativeZoom: 18,
+    styled: { layers: [{ url: esri('World_Imagery'), src: 'imagery' }], labels: ESRI_LABELS },
+    dark: {
+      url: esri('World_Imagery'),
+      labels: ESRI_LABELS.dark,
+      // Photos are bright and busy where a scope needs dark and quiet: drop
+      // it most of the way to night and drain most of the colour.
+      filter: 'brightness(.5) saturate(.45) contrast(1.1)',
+      labelsFilter: 'sepia(.22) saturate(.7) brightness(.86)',
+    },
+    light: {
+      url: esri('World_Imagery'),
+      labels: ESRI_LABELS.light,
+      filter: 'saturate(.5) brightness(1.12) contrast(.85)',
     },
   };
 
@@ -277,7 +332,7 @@
 
   // `key` is optional. Without one the app is entirely keyless.
   function providers(key) {
-    const list = [...KEYLESS_BASE, TERRAIN].map((p) => ({ ...p }));
+    const list = [...KEYLESS_BASE, TERRAIN, IMAGERY].map((p) => ({ ...p }));
     if (key) list.push(carto(key));
     return list;
   }

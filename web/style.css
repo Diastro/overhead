@@ -151,6 +151,19 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
    canvas over a hillshade). Without an isolation context the blend would reach
    past the pane and mix with the page background underneath it. */
 #map .leaflet-tile-pane { isolation: isolate; }
+/* A style's effect layer — scanlines, vignette, grid, dusk wash, grain —
+   over the tiles and under the scope, so it colours the map and never the
+   data. Fixed to the glass rather than the map: it is the screen's texture. */
+#map-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 450;
+  pointer-events: none;
+}
+#map-fx i { position: absolute; inset: 0; }
+/* Holds the styles' SVG filters; it must render (display:none drops the
+   filters in some engines) but take no space. */
+#style-filters { position: absolute; width: 0; height: 0; overflow: hidden; }
 #scope {
   position: absolute;
   inset: 0;
@@ -292,7 +305,7 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
    for reading them belongs on the glass next to the layer switches. */
 /* The basemap picker reads as a row, not as a switch, so it opts out of the
    reversed label layout the toggles above it use. */
-#basemap-row {
+#basemap-row, #style-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -301,8 +314,11 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
   padding: 8px 14px;
   border-top: 1px solid var(--panel-line);
 }
-#basemap-row label { padding: 0; cursor: default; }
-#basemap-select {
+/* STYLE sits directly under BASEMAP as one group, so it does not repeat the
+   divider or the gap that sets the pair off from the switches above. */
+#style-row { margin-top: 0; padding-top: 0; border-top: 0; }
+#basemap-row label, #style-row label { padding: 0; cursor: default; }
+#basemap-select, #style-select {
   flex: 1;
   min-width: 0;
   padding: 3px 4px;
