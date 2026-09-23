@@ -179,6 +179,9 @@ vector maps, left their inks under bar on 16–43% of a photo.
   the most common type and the ones seen only once. The server keeps this
   in `data/today.json` (gitignored) and resets it at local midnight; on a
   kiosk the bottom chip shows the day's totals when the sky is quiet.
+- **Last 14 days** — under TODAY: aircraft per day with the overhead share,
+  the average, the busiest day and the most-overhead day. Each day's summary
+  is archived at local midnight to `data/history.json` (gitignored, 30 days).
 
 Both scope tools are switches in **◧ LAYERS**.
 

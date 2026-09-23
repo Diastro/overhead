@@ -1401,6 +1401,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (r.ok) todayData = await r.json();
     } catch { /* keep the last one */ }
     renderToday();
+    renderHistory(); // today is the last bar of the 14-day chart
   }
   function renderToday() {
     const d = todayData;
@@ -1446,15 +1447,76 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     }
     todayCtx.globalAlpha = 1;
   }
+  // LAST 14 DAYS: the server archives each day's summary at midnight
+  // (/history); today's live numbers complete the row.
+  let historyData = [];
+  const histCanvas = document.getElementById('hist-canvas');
+  const histCtx = histCanvas.getContext('2d');
+  const histSum = document.getElementById('hist-sum');
+  const histStats = document.getElementById('hist-stats');
+  const shortDay = (d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
+  async function loadHistory() {
+    try {
+      const r = await fetch('/history');
+      if (r.ok) historyData = await r.json();
+    } catch { /* keep the last one */ }
+    renderHistory();
+  }
+  function renderHistory() {
+    const days = historyData.filter((d) => !todayData || d.day !== todayData.day).slice(-13);
+    if (todayData) days.push({ ...todayData, live: true });
+    if (!days.length) return;
+    const past = days.filter((d) => !d.live);
+    const avg = past.length ? Math.round(past.reduce((n, d) => n + d.aircraft, 0) / past.length) : null;
+    histSum.textContent = avg != null ? `AVG ${avg.toLocaleString()} / DAY` : 'FIRST DAY';
+    const top = (k) => days.reduce((b, d) => (d[k] > (b?.[k] ?? -1) ? d : b), null);
+    const busiest = top('aircraft'), mostOver = top('overhead');
+    histStats.innerHTML = [
+      busiest ? `BUSIEST <b>${busiest.aircraft.toLocaleString()}</b> · ${busiest.live ? 'TODAY' : shortDay(busiest.day)}` : '',
+      mostOver && mostOver.overhead ? `MOST OVERHEAD <b>${mostOver.overhead}</b> · ${mostOver.live ? 'TODAY' : shortDay(mostOver.day)}` : '',
+    ].filter(Boolean).join('<br>');
+    if (!bwChart.classList.contains('open')) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = 306, H = 44;
+    if (histCanvas.width !== W * dpr) {
+      histCanvas.width = W * dpr;
+      histCanvas.height = H * dpr;
+      histCanvas.style.width = W + 'px';
+      histCanvas.style.height = H + 'px';
+    }
+    histCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    histCtx.clearRect(0, 0, W, H);
+    const max = Math.max(1, ...days.map((d) => d.aircraft));
+    const slot = W / 14;
+    const x0 = W - days.length * slot; // right-aligned: today is always the last bar
+    days.forEach((d, i) => {
+      const x = x0 + i * slot + 2, w = slot - 4;
+      const h = Math.max(2, (d.aircraft / max) * (H - 4));
+      histCtx.globalAlpha = d.live ? 0.6 : 0.95; // today is still filling
+      histCtx.fillStyle = COLORS.chartHigh;
+      histCtx.beginPath();
+      histCtx.roundRect(x, H - h, w, h, 2);
+      histCtx.fill();
+      // The overhead share of the day, in the overhead colour, from the base.
+      const oh = d.aircraft ? (d.overhead / d.aircraft) * h : 0;
+      if (oh > 0) {
+        histCtx.fillStyle = COLORS.amber;
+        histCtx.fillRect(x, H - Math.max(1.5, oh), w, Math.max(1.5, oh));
+      }
+    });
+    histCtx.globalAlpha = 1;
+  }
   loadToday();
+  loadHistory();
   setInterval(() => { if (!paused) loadToday(); }, 60000);
+  setInterval(() => { if (!paused) loadHistory(); }, 15 * 60000);
 
   // Settings panel always starts closed — open state is not persisted
   bwEl.addEventListener('click', () => {
     bwChart.classList.toggle('open');
     drawBwChart();
     drawBwBars();
-    if (bwChart.classList.contains('open')) loadToday();
+    if (bwChart.classList.contains('open')) { loadToday(); loadHistory(); }
   });
   bwCanvas.addEventListener('mousemove', (e) => {
     if (!bwHistory.length) return;

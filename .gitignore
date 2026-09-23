@@ -3,6 +3,7 @@ config.local.json*
 data/*.sqlite
 data/usage.json
 data/today.json
+data/history.json
 data/routes/
 data/airports.csv
 data/airspace-*.json

@@ -351,9 +351,26 @@ const TODAY_PATH = path.join(ROOT, 'data', 'today.json');
 const freshDay = (day) => ({ day, seen: {}, hours: Array(24).fill(0) });
 let today = freshDay(dayKey(Date.now()));
 let todayDirty = false;
+// Past days, one summary each, newest last — the week's shape without
+// keeping every hex forever. 30 days is ~6 KB.
+const HISTORY_PATH = path.join(ROOT, 'data', 'history.json');
+let history = [];
+try { history = JSON.parse(fs.readFileSync(HISTORY_PATH, 'utf8')) || []; } catch {}
+function archiveDay(day) {
+  if (!Object.keys(day.seen).length || history.some((h) => h.day === day.day)) return;
+  const { hours, onlyOnce, ...rest } = summarize(day);
+  history.push({ ...rest, hours });
+  history = history.slice(-30);
+  try { writeJsonAtomic(HISTORY_PATH, history, false); } catch (err) {
+    console.error(`[history] save failed: ${err.message}`);
+  }
+}
 try {
   const t = JSON.parse(fs.readFileSync(TODAY_PATH, 'utf8'));
-  if (t && t.day === today.day && t.seen && Array.isArray(t.hours)) today = t;
+  if (t && t.seen && Array.isArray(t.hours)) {
+    // A server that was down over midnight still owes yesterday to history.
+    if (t.day === today.day) today = t; else setImmediate(() => archiveDay(t));
+  }
 } catch {}
 const F_OVERHEAD = 1, F_MIL = 2, F_EMERG = 4, F_POLICE = 8;
 function nmBetween(lat1, lon1, lat2, lon2) {
@@ -365,7 +382,7 @@ function nmBetween(lat1, lon1, lat2, lon2) {
 function noteSky(aircraft) {
   const now = new Date();
   const day = dayKey(now.getTime());
-  if (today.day !== day) today = freshDay(day);
+  if (today.day !== day) { archiveDay(today); today = freshDay(day); }
   const hour = now.getHours();
   for (const ac of aircraft) {
     if (!ac.hex) continue;
@@ -389,24 +406,25 @@ function noteSky(aircraft) {
 }
 // Wide-bodies and oddities first when naming what showed up only once today.
 const NOTABLE = /^(A38|A35|A34|A33|B74|B77|B78|B76|C17|C5|C130|C30J|K35|KC|E3|E6|P8|B52|B1|B2|F\d|AN|IL|CONC|DC10|MD11|A400|BLCF|BELF|H47|V22)/;
-function todaySummary() {
-  const recs = Object.values(today.seen);
+function todaySummary() { return summarize(today); }
+function summarize(day) {
+  const recs = Object.values(day.seen);
   const count = (bit) => recs.filter((r) => r.f & bit).length;
   const types = {};
   for (const r of recs) if (r.t) types[r.t] = (types[r.t] || 0) + 1;
   const ranked = Object.entries(types).sort((a, b) => b[1] - a[1]);
   const once = ranked.filter(([, n]) => n === 1).map(([t]) => t)
     .sort((a, b) => (NOTABLE.test(b) - NOTABLE.test(a)) || a.localeCompare(b));
-  const busiest = today.hours.reduce((best, n, h) => (n > today.hours[best] ? h : best), 0);
+  const busiest = day.hours.reduce((best, n, h) => (n > day.hours[best] ? h : best), 0);
   return {
-    day: today.day,
+    day: day.day,
     aircraft: recs.length,
     overhead: count(F_OVERHEAD),
     military: count(F_MIL),
     emergencies: count(F_EMERG),
     police: count(F_POLICE),
-    busiestHour: today.hours[busiest] ? busiest : null,
-    hours: today.hours,
+    busiestHour: day.hours[busiest] ? busiest : null,
+    hours: day.hours,
     topType: ranked[0] || null,
     onlyOnce: once.slice(0, 4),
     types: ranked.length,
@@ -1047,6 +1065,12 @@ const server = http.createServer(async (req, res) => {
       // dark airspace layer is never silently dark.
       res.end(JSON.stringify({ error: err.message || 'airspace data unavailable' }));
     }
+    return;
+  }
+
+  if (url.pathname === '/history') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(history));
     return;
   }
 
