@@ -132,6 +132,10 @@ chrome — and the ☾/☀ button picks its dark or light half. Styles live in
 | **Orbital** | Satellite imagery, night side with city lights | Bleached daylight imagery |
 | **E-ink** | Grey map, colour only on data | Greyscale newsprint |
 
+A browser that has never picked a style uses `"style"` from the config — set
+it in `config.local.json` (e.g. `{ "style": "relief" }`) to change a wall
+panel's look remotely; the ids are in `web/styles.js`.
+
 Swiss Relief switches the basemap to Terrain when you pick it, and Orbital
 switches to Esri Imagery. You can change the basemap afterwards. Every
 style except Classic recolours the tiles through SVG gradient-map filters

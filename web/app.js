@@ -175,7 +175,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // above; every other style recolours a provider's `styled` source through
   // SVG gradient-map filters that live in #style-filters.
   const STYLE_LIST = MAPSTYLES.STYLES;
-  let styleId = localStorage.getItem('overhead-style');
+  // A browser's own pick wins; until it makes one, `style` in the config
+  // (config.local.json on a wall panel) sets it. A kiosk has no keyboard and
+  // no way in from outside, so this is how its look is changed remotely.
+  let styleId = localStorage.getItem('overhead-style') || config.style;
   if (!STYLE_LIST.some((s) => s.id === styleId)) styleId = STYLE_LIST[0].id;
   // The half of the current style for the current theme, or null for CLASSIC.
   function styleHalf() {
