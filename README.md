@@ -115,8 +115,9 @@ Never put it in `config.json`: that file is committed.
 ## Map styles
 
 **◧ LAYERS → STYLE** picks the whole look — basemap colours, aircraft inks,
-chrome — and the ☾/☀ button picks its dark or light half. Styles live in
-`web/styles.js`.
+chrome — from the dropdown or by tapping a swatch. The theme button cycles
+☾ dark → ☀ light → ◐ **auto**, which follows the sun at home (light from civil
+dawn to civil dusk). Styles live in `web/styles.js`.
 
 | Style | Dark | Light |
 |---|---|---|
@@ -144,6 +145,18 @@ calibrated per provider (the keyed CARTO entry keeps its classic look).
 `npm run check:styles` measures every style's inks against the map colours
 that style paints: 4.5:1 for aircraft, overhead, trails and text, 3:1 for
 rings and leader lines. Run it after changing a palette.
+
+## Scope tools
+
+- **Vectors** — a line to where each aircraft will be in one minute at its
+  current groundspeed and track (`vector_minutes` in the config).
+- **Conflict alert** — two airborne aircraft within 3 NM and 1,000 ft of each
+  other get a red link, a `CA` tag and a banner. It only runs above 5,000 ft,
+  so parallel approaches and pattern traffic don't alarm all day
+  (`conflict_nm`, `conflict_ft`, `conflict_floor_ft`).
+- **VFR** — squawk 1200 shows as `VFR` in the data block.
+
+Both scope tools are switches in **◧ LAYERS**.
 
 ## Why not FlightRadar24 on a tablet?
 

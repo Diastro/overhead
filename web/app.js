@@ -723,7 +723,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // with the layers because that is where the AIRPORTS switch is — and it only
   // means anything when airports are drawn. ICAO is the default: it is what
   // charts and controllers use, and it is the only system every field has.
-  const LAYER_DEFAULTS = { aircraft: true, trails: true, blocks: true, airports: false, airspace: false, rings: true, scale: true, milzoom: true, icao: true, maplabels: true };
+  const LAYER_DEFAULTS = { aircraft: true, trails: true, blocks: true, airports: false, airspace: false, rings: true, scale: true, milzoom: true, icao: true, maplabels: true, vectors: true, conflict: true };
   let layers = { ...LAYER_DEFAULTS };
   try {
     layers = { ...LAYER_DEFAULTS, ...JSON.parse(localStorage.getItem('overhead-layers') || '{}') };
@@ -1935,6 +1935,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     // Outlive the crossfade (400 ms) before the previous look's filters go.
     setTimeout(() => styleDefs.querySelectorAll(`[id^="${prev}-"]`).forEach((n) => n.remove()), 600);
     const vars = half ? MAPSTYLES.chromeVars(half, COLORS) : {};
+    if (typeof paintSwatches === 'function' && swatchBox) paintSwatches();
     for (const k of CHROME_VARS) {
       if (vars[k]) document.body.style.setProperty(k, vars[k]);
       else document.body.style.removeProperty(k);
@@ -1944,17 +1945,46 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     applyBasemap();
   }
 
+  // Sun elevation at home, in degrees — the standard low-precision solar
+  // position (good to ~0.1°, far inside what a theme switch needs).
+  function sunElevation(lat, lon, date = new Date()) {
+    const r = Math.PI / 180;
+    const d = (date.getTime() - Date.UTC(2000, 0, 1, 12)) / 864e5;
+    const g = (357.529 + 0.98560028 * d) * r;
+    const q = 280.459 + 0.98564736 * d;
+    const L = (q + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * r;
+    const e = (23.439 - 0.00000036 * d) * r;
+    const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L));
+    const dec = Math.asin(Math.sin(e) * Math.sin(L));
+    const gmst = (18.697374558 + 24.06570982441908 * d) % 24;
+    const H = (gmst * 15 + lon) * r - ra;
+    return Math.asin(Math.sin(lat * r) * Math.sin(dec) + Math.cos(lat * r) * Math.cos(dec) * Math.cos(H)) / r;
+  }
+  // AUTO follows the sun at home: light from civil dawn (sun above −4°) to
+  // civil dusk, dark otherwise. GOLDEN / BLUE HOUR was drawn for exactly
+  // this — its two halves are the two ends of the day.
+  const THEME_GLYPH = { dark: '☾', light: '☀', auto: '◐' };
+  const THEME_TITLE = { dark: 'Dark theme — tap for light', light: 'Light theme — tap for auto', auto: 'Auto theme follows the sun at home — tap for dark' };
+  let themeMode = 'dark';
+  const resolveTheme = (mode) => (mode === 'auto' ? (sunElevation(HOME[0], HOME[1]) > -4 ? 'light' : 'dark') : mode);
   const themeToggle = document.getElementById('theme-toggle');
-  function applyTheme(name) {
+  function applyTheme(mode) {
+    themeMode = THEME_GLYPH[mode] ? mode : 'dark';
+    const name = resolveTheme(themeMode);
     document.body.classList.toggle('light', name === 'light');
-    themeName = name === 'light' ? 'light' : 'dark';
-    themeToggle.textContent = name === 'light' ? '☀' : '☾';
-    localStorage.setItem('overhead-theme', name);
+    themeName = name;
+    themeToggle.textContent = THEME_GLYPH[themeMode];
+    themeToggle.title = THEME_TITLE[themeMode];
+    localStorage.setItem('overhead-theme', themeMode);
     applyLook();
   }
   themeToggle.addEventListener('click', () => {
-    applyTheme(document.body.classList.contains('light') ? 'dark' : 'light');
+    applyTheme(themeMode === 'dark' ? 'light' : themeMode === 'light' ? 'auto' : 'dark');
   });
+  // Re-check once a minute; only repaint when dusk or dawn actually passes.
+  setInterval(() => {
+    if (themeMode === 'auto' && resolveTheme('auto') !== themeName) applyTheme('auto');
+  }, 60000);
 
   // Style picker, beside the basemap one in the LAYERS panel. A style that is
   // built for a particular source (SWISS RELIEF needs the hillshade, ORBITAL
@@ -1993,6 +2023,29 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     localStorage.setItem('overhead-basemap-auto', '1');
     // Say it: the basemap moving under you is otherwise a silent side effect.
     if (announce) flashAlert(`${st.label} · BASEMAP → ${currentBasemap().label}`, 5000);
+  }
+  // Swatches: every style as a tappable chip — its water, land and lowest
+  // altitude band for the current theme — so choosing is seeing, on a touch
+  // panel where a native dropdown shows eleven names and no pictures.
+  const swatchBox = document.getElementById('style-swatches');
+  const CLASSIC_CHIP = { dark: ['#131c26', '#2c3742', '#38bdff'], light: ['#b8c6c8', '#f0ece3', '#0a7fd9'] };
+  function paintSwatches() {
+    swatchBox.textContent = '';
+    for (const st of STYLE_LIST) {
+      const half = st[themeName];
+      const [w, l, b] = st.classic ? CLASSIC_CHIP[themeName]
+        : [half.map.water, half.map.land, MAPSTYLES.inksFor(st, themeName).altBands[0]];
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'swatch';
+      btn.setAttribute('role', 'radio');
+      btn.setAttribute('aria-checked', String(st.id === styleId));
+      btn.setAttribute('aria-label', st.label);
+      btn.title = st.label;
+      btn.style.background = `linear-gradient(135deg, ${w} 0 48%, ${l} 48% 78%, ${b} 78%)`;
+      btn.addEventListener('click', () => setStyle(st.id));
+      swatchBox.appendChild(btn);
+    }
   }
   function showStyle(st) {
     styleSelect.value = st.id;
@@ -2039,7 +2092,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
 
     const gs = Number.isFinite(t.fix.gs) ? `${Math.round(t.fix.gs)} kt` : `${NO_DATA} kt`;
     const type = m.type || NO_DATA;
-    const speedType = `${gs} · ${type}`;
+    // Squawk 1200 is the US VFR code: nobody is talking to that aircraft, and
+    // a controller reads it differently from an IFR target at the same spot.
+    const speedType = `${gs} · ${type}${m.squawk === '1200' ? ' · VFR' : ''}`;
     // The ICAO designator above is compact but unreadable unless you know the
     // codes, so the airframe description gets its own line ("B38M" over
     // "Boeing 737 Max 8"). Skipped when the feed has no description, which
@@ -2353,10 +2408,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // seconds with a fading afterglow behind it. Pure decoration, so reduced
   // motion removes it outright — a frozen wedge reads as a stuck display.
   const SWEEP_PERIOD_MS = 6000;
+  const sweepAngle = (now) => ((now % SWEEP_PERIOD_MS) / SWEEP_PERIOD_MS) * Math.PI * 2 - Math.PI / 2;
   function drawSweep(now) {
     if (REDUCED_MOTION || typeof ctx.createConicGradient !== 'function') return;
     const p = toPx(HOME[0], HOME[1], { x: 0, y: 0 });
-    const a = ((now % SWEEP_PERIOD_MS) / SWEEP_PERIOD_MS) * Math.PI * 2 - Math.PI / 2;
+    const a = sweepAngle(now);
     // Canvas conic angles and the beam's cos/sin share one convention (0 =
     // east, clockwise), so the gradient starts AT the beam: its end stop
     // (1.0) is the leading edge and the afterglow fades out behind it. An
@@ -2519,6 +2575,90 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
 
   const trailBuckets = [[], [], [], [], [], []]; // reused per aircraft per frame
+  // Predicted track: how far ahead each vector reaches. One minute is what a
+  // terminal scope shows by default — far enough to see who is converging,
+  // short enough not to paint the sky in lines.
+  const VECTOR_MIN = config.vector_minutes ?? 1;
+  // Conflict alert: two airborne aircraft inside this box. Real STARS
+  // separation is 3 NM / 1,000 ft; the floor keeps it out of approach and
+  // pattern traffic, where parallel finals sit 0.15 NM apart by design and
+  // would alarm all day.
+  const CA_NM = config.conflict_nm ?? 3;
+  const CA_FT = config.conflict_ft ?? 1000;
+  const CA_FLOOR_FT = config.conflict_floor_ft ?? 5000;
+  let conflicts = [];             // [[hexA, hexB], …], refreshed twice a second
+  let conflictAt = 0;
+  const conflictSeen = new Set(); // pairs already announced on the banner
+  function findConflicts() {
+    const air = [];
+    for (const t of targets.values()) {
+      const f = t.fix;
+      if (!t.onScreen || f.onGround || !Number.isFinite(f.alt) || f.alt < CA_FLOOR_FT) continue;
+      air.push(t);
+    }
+    const out = [];
+    for (let i = 0; i < air.length; i++) {
+      for (let j = i + 1; j < air.length; j++) {
+        const a = air[i], b = air[j];
+        if (Math.abs(a.fix.alt - b.fix.alt) >= CA_FT) continue;
+        if (distNm(a.shown.lat, a.shown.lon, b.shown.lat, b.shown.lon) >= CA_NM) continue;
+        out.push([a.meta.hex, b.meta.hex]);
+      }
+    }
+    const live = new Set(out.map((p) => p.join('|')));
+    for (const [a, b] of out) {
+      const key = `${a}|${b}`;
+      if (conflictSeen.has(key)) continue;
+      conflictSeen.add(key);
+      const name = (hex) => { const m = targets.get(hex)?.meta; return m?.callsign || m?.reg || hex.toUpperCase(); };
+      flashAlert(`CONFLICT ALERT · ${name(a)} / ${name(b)}`, 8000);
+    }
+    for (const k of conflictSeen) if (!live.has(k)) conflictSeen.delete(k);
+    return out;
+  }
+  function drawConflicts(nowMs) {
+    const on = REDUCED_MOTION || Math.floor(nowMs / 500) % 2 === 0;
+    ctx.save();
+    ctx.lineWidth = 1.6;
+    ctx.font = TAG_FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const [ha, hb] of conflicts) {
+      const a = targets.get(ha), b = targets.get(hb);
+      if (!a?.px || !b?.px || !a.onScreen || !b.onScreen) continue;
+      ctx.strokeStyle = COLORS.mil;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(a.px.x, a.px.y);
+      ctx.lineTo(b.px.x, b.px.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (on) {
+        for (const t of [a, b]) {
+          ctx.beginPath();
+          ctx.arc(t.px.x, t.px.y, 17 * ICON_K, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+      const mx = (a.px.x + b.px.x) / 2, my = (a.px.y + b.px.y) / 2;
+      ctx.fillStyle = COLORS.mil;
+      ctx.beginPath();
+      ctx.roundRect(mx - 14, my - 9, 28, 18, 4);
+      ctx.fill();
+      ctx.fillStyle = luminanceOf(COLORS.mil) > 0.4 ? '#140f04' : '#ffffff';
+      ctx.fillText('CA', mx, my + 0.5);
+    }
+    ctx.restore();
+  }
+  function luminanceOf(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => {
+      v /= 255;
+      return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+
   let lastFrame = performance.now();
   function frame(now) {
     const dtF = Math.min((now - lastFrame) / 1000, 0.25);
@@ -2568,6 +2708,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     syncProjection(); // one read of map state for every projection this frame
 
     if (styleFx.sweep) drawSweep(now);
+    // Where the phosphor beam is this frame, so targets can light up as it
+    // passes over them (see the icon pass below).
+    const beamOn = !!styleFx.sweep && !REDUCED_MOTION;
+    const beamA = beamOn ? sweepAngle(now) : 0;
+    const homePx = beamOn ? { ...toPx(HOME[0], HOME[1]) } : null;
     if (layers.rings) drawRings();
     drawHome();
     if (layers.scale) drawScale();
@@ -2675,6 +2820,43 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
           ctx.stroke();
         }
         ctx.globalAlpha = 1;
+      }
+
+      // Predicted track: a straight line to where this aircraft will be in
+      // VECTOR_MIN minutes at its current groundspeed and track.
+      if (layers.vectors && !f.onGround && Number.isFinite(f.gs) && f.gs > 40) {
+        const [vLat, vLon] = project(t.shown.lat, t.shown.lon, t.shown.track, (f.gs * VECTOR_MIN) / 60);
+        const vp = toPx(vLat, vLon);
+        ctx.save();
+        ctx.strokeStyle = mil ? COLORS.mil : police ? COLORS.police : overhead ? COLORS.amber
+          : COLORS.altBands[altBandIndex(f.alt)];
+        ctx.globalAlpha = 0.75;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
+        ctx.lineTo(vp.x, vp.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Phosphor paint: a target glows as the beam crosses it and fades over
+      // the next 1.5 s, the way a real PPI's afterglow shows a return. The
+      // positions still move on the feed, not the beam — this is the look,
+      // honestly labelled as such in the style's note.
+      if (beamOn) {
+        const bearing = Math.atan2(pt.y - homePx.y, pt.x - homePx.x);
+        const behind = (((beamA - bearing) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        const sinceMs = (behind / (Math.PI * 2)) * SWEEP_PERIOD_MS;
+        const glow = Math.max(0, 1 - sinceMs / 1500);
+        if (glow > 0.01) {
+          ctx.save();
+          ctx.globalAlpha = glow * 0.55;
+          ctx.fillStyle = styleFx.sweep;
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 16 * ICON_K, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
       }
 
       // icon — Coast Guard flashes red/yellow, police red/blue (steady
@@ -2820,6 +3002,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
         blockQueue.push({ x: pt.x, y: pt.y, lines, opts, rank, hex: t.meta.hex });
       }
     }
+    if (layers.conflict) {
+      const nowC = Date.now();
+      if (nowC - conflictAt > 500) { conflictAt = nowC; conflicts = findConflicts(); }
+      if (conflicts.length) drawConflicts(nowC);
+    } else if (conflicts.length) conflicts = [];
     placeBlocks(blockQueue);
     // placeBlocks leaves the queue sorted best-rank-first; paint in reverse so
     // the important blocks land on top if a fallback placement did overlap.
@@ -2911,6 +3098,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     maplabels: (on) => setLayer('maplabels', on),
     basemap: (id) => setBasemap(id),
     style: (id) => setStyle(id),
+    vectors: (on) => setLayer('vectors', on),
+    conflict: (on) => setLayer('conflict', on),
     list: () => listToggle.click(),
     settings: () => bwEl.click(),
   };
@@ -2918,7 +3107,11 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const msg = e.data;
     if (!msg || msg.source !== 'edge-loader') return;
     if (msg.type === 'visibility') { setPaused(!msg.visible); return; }
-    if (msg.type === 'command') SHELL_COMMANDS[msg.cmd]?.(msg.on);
+    // Own properties only: 'constructor' or '__proto__' from a confused shell
+    // used to resolve to Object's own methods and throw "APP ERROR" on glass.
+    if (msg.type === 'command' && typeof msg.cmd === 'string' && Object.hasOwn(SHELL_COMMANDS, msg.cmd)) {
+      SHELL_COMMANDS[msg.cmd](msg.on);
+    }
   });
   // Announce readiness so the shell can re-assert visibility to a slow loader.
   if (EMBED && window.parent !== window) {

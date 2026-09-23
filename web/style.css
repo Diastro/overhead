@@ -323,6 +323,25 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
 #style-row { margin-top: 0; padding-top: 0; border-top: 0; }
 /* One label column, so the two selects start on the same x. */
 #basemap-row label, #style-row label { padding: 0; cursor: default; min-width: 64px; }
+/* Style chips: water / land / lowest altitude band of each style, tappable. */
+#style-swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 28px);
+  gap: 6px;
+  padding: 4px 14px 8px;
+}
+.swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.swatch[aria-checked="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+.swatch:focus-visible { outline: 2px solid var(--bar-bright); outline-offset: 2px; }
+body.wall #style-swatches { grid-template-columns: repeat(6, 36px); gap: 8px; }
+body.wall .swatch { width: 36px; height: 36px; }
 /* The style's description, as text: a touch panel never shows a tooltip. */
 #style-note {
   max-width: 250px;

@@ -14,7 +14,7 @@
     <div class="stat center"><b id="count">0</b> AIRCRAFT · <span id="overhead-stat"><b id="overhead-count">0</b> OVERHEAD</span></div>
     <div class="right">
       <div class="stat" id="clock">--:--:--</div>
-      <button id="theme-toggle" type="button" title="Toggle light/dark theme">☾</button>
+      <button id="theme-toggle" type="button" title="Dark theme — tap for light">☾</button>
     </div>
   </header>
   <main id="stage">
@@ -39,6 +39,8 @@
       <label><input type="checkbox" data-layer="airports"> AIRPORTS</label>
       <label title="ICAO idents (KSEA, KBFI) as used on charts, or IATA codes (SEA, BFI) where a field has one"><input type="checkbox" data-layer="icao"> ICAO CODES</label>
       <label><input type="checkbox" data-layer="airspace"> AIRSPACE</label>
+      <label title="A line to where each aircraft will be in one minute at its current speed and track"><input type="checkbox" data-layer="vectors"> VECTORS</label>
+      <label title="Flags two airborne aircraft within 3 NM and 1,000 ft of each other (above 5,000 ft)"><input type="checkbox" data-layer="conflict"> CONFLICT ALERT</label>
       <label><input type="checkbox" data-layer="rings"> RANGE RINGS</label>
       <label><input type="checkbox" data-layer="scale"> NM SCALE</label>
       <label><input type="checkbox" data-layer="milzoom"> MIL AUTO-ZOOM</label>
@@ -51,6 +53,7 @@
         <label for="style-select">STYLE</label>
         <select id="style-select"></select>
       </div>
+      <div id="style-swatches" role="radiogroup" aria-label="Map style"></div>
       <div id="style-note"></div>
       <div id="alt-legend">
         <span class="t">ALTITUDE</span>
