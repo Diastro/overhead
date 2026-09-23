@@ -97,7 +97,7 @@ body { background: var(--stage-bg); }
    one place --warn becomes body text, so it gets a deeper amber here: 5.33:1,
    and still unmistakably the overhead colour. */
 body.light #overhead-stat.active,
-body.light #overhead-stat.active b { color: #9c5400; }
+body.light #overhead-stat.active b { color: var(--warn-text, #9c5400); }
 #bar .brand { justify-self: start; }
 #bar .center { justify-self: center; }
 #bar .right { display: inline-flex; align-items: center; gap: 14px; justify-self: end; }
@@ -255,6 +255,10 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
   color: var(--bar-ink);
 }
 #layers-panel.open { display: flex; }
+/* The panel grows up from the bottom-right, and with the STYLE row it
+   reached the VIEW control at the top-right on a 720 px-tall panel. Cap it
+   below that control and let it scroll instead of covering it. */
+#layers-panel { max-height: calc(100% - 72px - 110px); overflow-y: auto; }
 /* Switches, not form checkboxes: the panel sits on an operational display,
    so its controls should read as instrumentation. */
 #layers-panel label {
@@ -317,17 +321,30 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
 /* STYLE sits directly under BASEMAP as one group, so it does not repeat the
    divider or the gap that sets the pair off from the switches above. */
 #style-row { margin-top: 0; padding-top: 0; border-top: 0; }
-#basemap-row label, #style-row label { padding: 0; cursor: default; }
+/* One label column, so the two selects start on the same x. */
+#basemap-row label, #style-row label { padding: 0; cursor: default; min-width: 64px; }
+/* The style's description, as text: a touch panel never shows a tooltip. */
+#style-note {
+  max-width: 250px;
+  padding: 0 14px 8px;
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.45;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
 #basemap-select, #style-select {
   flex: 1;
   min-width: 0;
-  padding: 3px 4px;
+  /* 28 px, up from 21: these are touch targets on a wall panel. */
+  min-height: 28px;
+  padding: 3px 6px;
   border: 1px solid var(--input-border);
   border-radius: 3px;
   background: var(--input-bg);
   color: var(--bar-ink);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   cursor: pointer;
 }
@@ -418,7 +435,7 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
 #ac-list .l1 { display: flex; justify-content: space-between; color: var(--accent); font-weight: 700; }
 #ac-list .l1 .dist { color: var(--bar-ink); font-weight: 400; }
 #ac-list .l2 { color: var(--muted); font-size: 11px; }
-#ac-list li.mil .l1 { color: var(--bad); }
+#ac-list li.mil .l1 { color: var(--mil, var(--bad)); }
 #ac-list li.police .l1 { color: var(--police); }
 #ac-list li.overhead .l1 { color: var(--warn); }
 #ac-list li.ground .l1,
@@ -481,7 +498,7 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
 #find-results .l1 { display: flex; justify-content: space-between; color: var(--accent); font-weight: 700; }
 #find-results .l1 .dist { color: var(--bar-ink); font-weight: 400; }
 #find-results .l2 { color: var(--muted); font-size: 11px; }
-#find-results li.mil .l1 { color: var(--bad); }
+#find-results li.mil .l1 { color: var(--mil, var(--bad)); }
 #find-results li.police .l1 { color: var(--police); }
 /* Tracking state: the toggle turns amber and carries the live readout. */
 #find-toggle.tracking {
@@ -750,6 +767,8 @@ body.compact #ac-list .l2 { font-size: 10px; }
 body.compact #home-panel, body.compact #find-panel { width: 272px; padding: 9px 11px; gap: 6px; }
 body.compact #home-input { padding: 6px 8px; font-size: 12px; }
 body.compact #home-set { padding: 5px 12px; font-size: 10px; }
+body.wall #basemap-select, body.wall #style-select { min-height: 40px; font-size: 13px; }
+body.wall #style-note { font-size: 12px; max-width: 320px; }
 body.compact #layers-panel { padding: 4px 0; font-size: 9.5px; bottom: 62px; min-width: 168px; }
 body.compact #layers-panel label { padding: 5px 11px; }
 body.compact #alt-legend { padding: 7px 11px 2px; }

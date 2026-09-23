@@ -122,8 +122,8 @@ chrome — and the ☾/☀ button picks its dark or light half. Styles live in
 |---|---|---|
 | **Classic** (default) | Slate navy | Warm ivory |
 | **Radar Phosphor** | Green radar glass, scanlines, a slow sweep | Sage "daylight scope" |
-| **VFR Sectional** | Cockpit red — military turns white to stay distinct | Tan land, yellow towns, magenta rings |
-| **Cyanotype** | Chalk coastlines on Prussian blue, drafting grid | Whiteprint; traffic goes coral |
+| **VFR Sectional** | Cockpit red — military turns white to stay distinct | Tan land, yellow towns, chart-blue water |
+| **Cyanotype** | Chalk coastlines on Prussian blue, drafting grid | Whiteprint; traffic in graphite |
 | **ECDIS Nautical** | IHO S-52 Night, shoal bands along the coast | S-52 Day: buff land, white deep water |
 | **Swiss Relief** | Moonlit ridges | Parchment with violet shadows |
 | **Golden / Blue Hour** | Indigo dusk | Honey land, teal water |

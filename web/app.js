@@ -180,13 +180,30 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   // no way in from outside, so this is how its look is changed remotely.
   let styleId = localStorage.getItem('overhead-style') || config.style;
   if (!STYLE_LIST.some((s) => s.id === styleId)) styleId = STYLE_LIST[0].id;
-  // The half of the current style for the current theme, or null for CLASSIC.
+  // The half of the current style for the current theme — or null, meaning
+  // "draw CLASSIC", for CLASSIC itself and for a provider with no `styled`
+  // source (the keyed CARTO entry). A style is inks, chrome and tiles as one
+  // measured set; painting its inks over tiles it was never measured on is
+  // how an ink quietly drops under its bar.
   function styleHalf() {
     const st = MAPSTYLES.byId(styleId);
-    return st.classic ? null : st[themeName];
+    if (st.classic || !currentBasemap().styled) return null;
+    return st[themeName];
   }
+  // Filter ids are versioned per look (ms1-, ms2-, …). The outgoing layers
+  // keep pointing at the previous look's filters through applyBasemap's
+  // 400 ms crossfade, so those have to outlive it: with one reused id the
+  // old tiles either lost their filter mid-fade (styled → CLASSIC flashed the
+  // raw grey canvas across the wall) or jumped to the new colours at once.
+  let lookGen = 0;
+  let lookPrefix = 'ms0';
   let tileLayers = [];            // [base] or [base, labels]
-  const basemapTried = new Set(); // providers an automatic failover already burned
+  // Providers an automatic failover found dead, with when. Forgotten after
+  // ten minutes: an outage is weather, and a provider that failed once at
+  // 3 a.m. must not stay ruled out for every style change until a reload.
+  const basemapTried = new Map();
+  const TRIED_MS = 10 * 60 * 1000;
+  const recentlyFailed = (pid) => Date.now() - (basemapTried.get(pid) ?? -Infinity) < TRIED_MS;
 
   function currentBasemap() {
     return basemapList.find((p) => p.id === basemapId) || basemapList[0];
@@ -205,10 +222,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     const spec = half && provider.styled
       ? {
           layers: provider.styled.layers.map((l) => (l.relief
-            ? { url: l.url, filter: 'url(#ms-relief)', blend: 'multiply', opacity: half.map.relief?.op ?? 0.6 }
-            : { url: l.url, filter: `url(#ms-base-${l.src})` })),
+            ? { url: l.url, filter: `url(#${lookPrefix}-relief)`, blend: 'multiply', opacity: half.map.relief?.op ?? 0.6 }
+            : { url: l.url, filter: `url(#${lookPrefix}-base-${l.src})` })),
           labels: provider.styled.labels?.[MAPSTYLES.labelKind(half.map)],
-          labelsFilter: 'url(#ms-labels)',
+          labelsFilter: `url(#${lookPrefix}-labels)`,
         }
       : provider[themeName] || provider.dark;
     const opts = {
@@ -271,9 +288,12 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // What YOU picked, as distinct from what a style moved you to — see
       // setStyle(), which returns here when you leave that style.
       localStorage.setItem('overhead-basemap-user', id);
+      localStorage.removeItem('overhead-basemap-auto');
       basemapTried.clear(); // a deliberate choice re-arms automatic failover
     }
-    applyBasemap();
+    // The whole look, not just the tiles: moving to a provider with no styled
+    // source (or back) changes which inks and chrome apply.
+    applyLook();
   }
 
   // A provider that starts refusing tiles should cost a glance, not a debug
@@ -295,8 +315,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       errorsAt.push(now);
       errorsAt = errorsAt.filter((t) => now - t < ERR_WINDOW_MS);
       if (errorsAt.length !== 6) return; // one dropped tile is weather, not a policy change
-      basemapTried.add(provider.id);
-      const next = basemapList.find((p) => !basemapTried.has(p.id));
+      basemapTried.set(provider.id, Date.now());
+      const next = basemapList.find((p) => !recentlyFailed(p.id));
       if (!next) {
         flashAlert('NO BASEMAP REACHABLE — SCOPE IS LIVE, MAP IS NOT');
         return;
@@ -1905,11 +1925,16 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
   function applyLook() {
     const half = styleHalf();
-    COLORS = { ...THEMES[themeName], ...(half?.inks || {}) };
+    const st = MAPSTYLES.byId(styleId);
+    COLORS = half ? MAPSTYLES.inksFor(st, themeName) : THEMES[themeName];
     paintAltLegend();
     stripeCache = {}; // livery patterns bake theme colors — rebuild lazily
-    styleDefs.innerHTML = half ? MAPSTYLES.filterDefs(MAPSTYLES.byId(styleId), themeName, 'ms') : '';
-    const vars = half ? MAPSTYLES.chromeVars(half) : {};
+    const prev = lookPrefix;
+    lookPrefix = `ms${++lookGen}`;
+    if (half) styleDefs.insertAdjacentHTML('beforeend', MAPSTYLES.filterDefs(st, themeName, lookPrefix));
+    // Outlive the crossfade (400 ms) before the previous look's filters go.
+    setTimeout(() => styleDefs.querySelectorAll(`[id^="${prev}-"]`).forEach((n) => n.remove()), 600);
+    const vars = half ? MAPSTYLES.chromeVars(half, COLORS) : {};
     for (const k of CHROME_VARS) {
       if (vars[k]) document.body.style.setProperty(k, vars[k]);
       else document.body.style.removeProperty(k);
@@ -1945,26 +1970,62 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     opt.title = st.note;
     styleSelect.appendChild(opt);
   });
+  const styleNote = document.getElementById('style-note');
+  // Which basemap a style should sit on: its own preference, else the one
+  // you picked, else whatever is up — never one a failover has already found
+  // dead (picking a style during an outage used to send the wall straight
+  // back to the provider that was down).
+  //
+  // Falls back to the list's first healthy provider, NOT to whatever is on
+  // screen: what is on screen may be the previous style's preference, and
+  // keeping it meant one look at ORBITAL left every later style pulling
+  // satellite tiles.
+  function resolveBasemap(st, announce) {
+    const ok = (pid) => pid && basemapList.some((p) => p.id === pid) && !recentlyFailed(pid);
+    const userPick = localStorage.getItem('overhead-basemap-user');
+    const target = ok(st.prefers) ? st.prefers : ok(userPick) ? userPick
+      : (basemapList.find((p) => !recentlyFailed(p.id)) || basemapList[0]).id;
+    if (target === basemapId) return;
+    basemapId = target;
+    localStorage.setItem('overhead-basemap', target);
+    // Marks the stored basemap as the style's doing, so the boot migration
+    // below never mistakes it for a choice you made.
+    localStorage.setItem('overhead-basemap-auto', '1');
+    // Say it: the basemap moving under you is otherwise a silent side effect.
+    if (announce) flashAlert(`${st.label} · BASEMAP → ${currentBasemap().label}`, 5000);
+  }
+  function showStyle(st) {
+    styleSelect.value = st.id;
+    styleSelect.title = st.note;
+    // Touch screens never show a title tooltip, so the description is text.
+    styleNote.textContent = st.note;
+  }
   function setStyle(id) {
     if (!STYLE_LIST.some((st) => st.id === id)) return;
     styleId = id;
     localStorage.setItem('overhead-style', id);
-    styleSelect.value = id;
     const st = MAPSTYLES.byId(id);
-    styleSelect.title = st.note;
-    const has = (pid) => pid && basemapList.some((p) => p.id === pid);
-    const userPick = localStorage.getItem('overhead-basemap-user');
-    const target = has(st.prefers) ? st.prefers : has(userPick) ? userPick : basemapList[0].id;
-    if (target !== basemapId) {
-      basemapId = target;
-      localStorage.setItem('overhead-basemap', target);
-      basemapTried.clear();
-    }
+    showStyle(st);
+    resolveBasemap(st, true);
     applyLook();
+    // A provider with no styled source (the keyed CARTO entry) draws CLASSIC
+    // whatever is picked — say so rather than appear to ignore the choice.
+    if (!st.classic && !currentBasemap().styled) {
+      flashAlert(`${st.label} NEEDS A KEYLESS BASEMAP — ${currentBasemap().label} STAYS CLASSIC`, 6000);
+    }
   }
-  styleSelect.value = styleId;
-  styleSelect.title = MAPSTYLES.byId(styleId).note;
   styleSelect.addEventListener('change', () => setStyle(styleSelect.value));
+  // Boot. A basemap chosen before styles existed only ever lived in
+  // 'overhead-basemap'; adopt it as the user's pick, or the first style
+  // change would replace it for good. Then give the starting style its
+  // preferred source — a panel set up through config.style never calls
+  // setStyle, and SWISS RELIEF without the hillshade is just beige.
+  if (!localStorage.getItem('overhead-basemap-user') && localStorage.getItem('overhead-basemap') &&
+      !localStorage.getItem('overhead-basemap-auto')) {
+    localStorage.setItem('overhead-basemap-user', localStorage.getItem('overhead-basemap'));
+  }
+  showStyle(MAPSTYLES.byId(styleId));
+  resolveBasemap(MAPSTYLES.byId(styleId), false);
   applyTheme(localStorage.getItem('overhead-theme') || 'dark');
 
   // ATC full data block, top to bottom: who / how high / how fast + what.
@@ -2289,16 +2350,19 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
   }
 
   // RADAR PHOSPHOR's sweep: a beam turning about home once every six
-  // seconds with a fading afterglow behind it. Pure decoration, so it is the
-  // first thing reduced motion takes away — it stays as a still wedge.
+  // seconds with a fading afterglow behind it. Pure decoration, so reduced
+  // motion removes it outright — a frozen wedge reads as a stuck display.
   const SWEEP_PERIOD_MS = 6000;
   function drawSweep(now) {
-    if (typeof ctx.createConicGradient !== 'function') return;
+    if (REDUCED_MOTION || typeof ctx.createConicGradient !== 'function') return;
     const p = toPx(HOME[0], HOME[1], { x: 0, y: 0 });
-    const a = REDUCED_MOTION ? -Math.PI / 2 : ((now % SWEEP_PERIOD_MS) / SWEEP_PERIOD_MS) * Math.PI * 2 - Math.PI / 2;
-    // The gradient runs clockwise from its start angle, so the leading edge
-    // sits at the END (1.0) and the afterglow fades out behind it.
-    const g = ctx.createConicGradient(a - Math.PI * 0.5, p.x, p.y);
+    const a = ((now % SWEEP_PERIOD_MS) / SWEEP_PERIOD_MS) * Math.PI * 2 - Math.PI / 2;
+    // Canvas conic angles and the beam's cos/sin share one convention (0 =
+    // east, clockwise), so the gradient starts AT the beam: its end stop
+    // (1.0) is the leading edge and the afterglow fades out behind it. An
+    // earlier −π/2 here — the CSS "0 = north" habit — put the glow a quarter
+    // turn behind the line.
+    const g = ctx.createConicGradient(a, p.x, p.y);
     const c = styleFx.sweep;
     g.addColorStop(0, hexA(c, 0));
     g.addColorStop(0.72, hexA(c, 0));
@@ -2622,7 +2686,10 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // Status colors (emergency / military / police / overhead) always win —
       // they mean "look here". Everything else is shaded by altitude band.
       const iconColor =
-        t.meta.emerg ? (flashOn ? COLORS.policeWhite : COLORS.mil) // 7500/7600/7700: red/white
+        // 7500/7600/7700: red and a partner. CLASSIC flashes red/white; a
+        // style picks a partner that stands off its own map and its own
+        // altitude bands (white vanished on every light style's ground).
+        t.meta.emerg ? (flashOn ? (COLORS.emergFlash || COLORS.policeWhite) : COLORS.mil)
         : t.meta.cg ? (flashOn ? COLORS.mil : COLORS.amber)
         : mil ? COLORS.mil
         : police ? (flashOn ? COLORS.mil : COLORS.police)
@@ -2777,7 +2844,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     // a 24/7 wall display spends showing nobody. Any map gesture, hover, or the
     // first aircraft in a fix (≤250 ms away) restores full rate.
     const idle = targets.size === 0 && !mapBusy && !milZoom.active &&
-      !hoveredAirport && !airportTap;
+      !hoveredAirport && !airportTap &&
+      // A turning sweep is motion; at the 4 fps idle rate it jumped ~15° a tick.
+      !(styleFx.sweep && !REDUCED_MOTION);
     if (paused) rafId = null;
     else if (idle) {
       rafId = null;

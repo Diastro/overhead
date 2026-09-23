@@ -13,7 +13,7 @@
 // Every other style runs on a GRADIENT MAP instead of a filter chain, because
 // a chain of brightness/saturate/hue-rotate can only nudge a provider's own
 // colours around, and these styles need to put specific colours in specific
-// places (magenta rings on tan land, chalk coastline on Prussian blue). A
+// places (yellow towns on tan land, chalk coastline on Prussian blue). A
 // gradient map does that in two steps, both inside one SVG filter per layer:
 //
 //   1. normalise — collapse the provider's tile to one "canonical" grey,
@@ -58,6 +58,25 @@
   const contrast = (a, b) => {
     const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
     return (x + 0.05) / (y + 0.05);
+  };
+  // CIE76 ΔE in L*a*b*: how different two colours LOOK, which contrast ratio
+  // does not measure — two reds at 1.07:1 and two reds at 4:1 are both "red".
+  const lab = (h) => {
+    const [r, g, b] = hex(h).map(lin);
+    const xyz = [(0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.9505, 0.2126 * r + 0.7152 * g + 0.0722 * b,
+      (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.089];
+    const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+    const [fx, fy, fz] = xyz.map(f);
+    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+  };
+  const deltaE = (a, b) => { const A = lab(a), B = lab(b); return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]); };
+  // Nudge `c` toward `toward` until it clears `min`:1 against `bg`.
+  const ensure = (c, bg, min, toward) => {
+    for (let t = 0; t <= 1; t += 0.02) {
+      const x = mix(c, toward, t);
+      if (contrast(x, bg) >= min) return x;
+    }
+    return toward;
   };
   const rgba = (h, a) => { const [r, g, b] = hex(h).map((v) => Math.round(v * 255)); return `rgba(${r},${g},${b},${a})`; };
 
@@ -210,9 +229,10 @@
   //      wash [top, bottom, opacity].
   // chrome: bar/ink/bright/muted/accent/border; the rest is derived.
   // inks: overrides for the canvas palette in app.js (THEMES.dark/light).
-  //      Anything not listed keeps that theme's value — military red, police
-  //      blue and the climb/descend arrows mean the same thing in every style.
-  const NAVY_RAMP = ['#0b4f84', '#09436f', '#07375b', '#052b47', '#041f33'];
+  //      Anything not listed keeps that theme's value. Military red and police
+  //      blue keep their HUE in every style — they mean the same thing
+  //      everywhere — but a style may shift their lightness to clear its own
+  //      map (tools/check-styles.js holds them to 4.5:1 like any target).
 
   const STYLES = [
     {
@@ -225,11 +245,11 @@
       note: 'Green radar glass with a slow sweep. Aircraft go mint-to-white; overhead stays amber.',
       dark: {
         map: { water: '#020a05', coast: '#1f6b3a', urban: '#0e2a18', land: '#0a2013', road: '#1b4a30',
-          label: '#5fbf82', halo: '#03100a', coastLine: { color: '#34a860', width: 1, opacity: 0.9 } },
+          label: '#5fbf82', halo: '#03100a', coastLine: { color: '#2a8a4e', width: 0.9, opacity: 0.6 } },
         fx: { scan: 0.28, vignette: 0.5, sweep: '#3cff7a' },
         chrome: { bar: '#010502', ink: '#5fd68a', bright: '#c9ffd9', muted: '#4a9a68', accent: '#7dffa8', border: '#1c5a33' },
         inks: {
-          altBands: ['#3fd67a', '#6fe399', '#9aedb8', '#c4f5d4', '#ecfff2'], icon: '#6fe399',
+          altBands: ['#2cb865', '#5bd188', '#8ae2aa', '#bbf0cd', '#ecfff2'], icon: '#6fe399',
           trail: '#3fbf6e', leader: '#3f9a62', iconHalo: 'rgba(1,8,4,0.85)',
           blockBg: 'rgba(2,14,7,0.92)', blockEdge: '#4caf72',
           amber: '#ffb000', amberEdge: '#d99400', amberBg: 'rgba(24,18,2,0.94)',
@@ -243,7 +263,7 @@
           label: '#3d5234', halo: '#eef2e6', coastLine: { color: '#5c7b51', width: 0.9, opacity: 0.85 } },
         fx: { vignette: 0.12 },
         chrome: { bar: '#eef2e4', ink: '#3a4a33', bright: '#16230f', muted: '#5a6a52', accent: '#2f7a3a', border: '#b9c7ad' },
-        inks: { amberEdge: '#855100', amber: '#855100',
+        inks: { police: '#2a4edb', mil: '#b3261a', amberEdge: '#855100', amber: '#855100',
           altBands: ['#176231', '#125226', '#0e421d', '#093214', '#05220c'], icon: '#176231',
           trail: '#1f6a38', leader: '#5f7050', blockBg: 'rgba(246,249,240,0.95)', blockEdge: '#56694a',
           ring: '#5d7d4e', ringText: '#3a5a30', ringLabelBg: 'rgba(246,249,240,0.88)',
@@ -255,19 +275,19 @@
 
     {
       id: 'sectional', label: 'VFR SECTIONAL', prefers: 'terrain',
-      note: 'Pilot’s chart: tan land, yellow towns, magenta rings. Night is cockpit red — military turns white so it still stands out.',
+      note: 'Pilot’s chart: tan land, yellow towns, chart-blue water. Rings stay neutral — dashed magenta means airspace on a chart. Night is cockpit red, and military turns white so it still stands out.',
       dark: {
         map: { water: '#070203', coast: '#5a1a18', urban: '#1f0a0a', land: '#150707', road: '#2e0f0d',
           label: '#b0635a', halo: '#0a0303', relief: { shadow: '#000000', op: 0.55 },
           coastLine: { color: '#8a2c26', width: 1, opacity: 0.9 } },
         chrome: { bar: '#040101', ink: '#c85e52', bright: '#ffb3a3', muted: '#9a4a40', accent: '#ff5a48', border: '#4a1612' },
         inks: {
-          altBands: ['#e0564a', '#ec7a6a', '#f59c8c', '#fbbfb2', '#ffe0d8'], icon: '#ec7a6a',
+          altBands: ['#d94c40', '#e4695b', '#ee8577', '#f5a193', '#f9b8ab'], icon: '#ec7a6a',
           trail: '#ca5b4f', leader: '#9a4a40', iconHalo: 'rgba(8,2,2,0.85)',
           blockBg: 'rgba(14,3,3,0.93)', blockEdge: '#b55a4e',
           amber: '#ffc46b', amberEdge: '#d9a050', amberBg: 'rgba(24,14,4,0.94)',
           textOverhead: ['#ffc46b', '#ffe8c8', '#ffd08a', '#d0a878'],
-          mil: '#f4f4f4', milEdge: '#d6d6d6', milBg: 'rgba(24,20,20,0.94)',
+          mil: '#ffffff', milEdge: '#e6e6e6', milBg: 'rgba(24,20,20,0.94)', policeWhite: '#ff2a1a',
           textMil: ['#ffffff', '#f0e0dc', '#e8d0c8', '#c8aca4'],
           ring: '#b54a42', ringText: '#d8766a', ringLabelBg: 'rgba(10,2,2,0.85)',
           home: '#ffd8cc', airport: '#d0766a', dim: '#7a4a44',
@@ -276,14 +296,14 @@
       },
       light: {
         map: { water: '#b9dcec', coast: '#3a7fb0', urban: '#f2d67c', land: '#eee3c4', road: '#e2c89a',
-          label: '#3b3b3b', halo: '#f4ecd4', relief: { shadow: '#8a7a5a', op: 0.55 },
+          label: '#3b3b3b', halo: '#f4ecd4', relief: { shadow: '#8a7a5a', op: 0.38 },
           coastLine: { color: '#2f6f9f', width: 1, opacity: 0.9 } },
         chrome: { bar: '#f7f1e1', ink: '#4a4230', bright: '#1f1a10', muted: '#6f6650', accent: '#a3317f', border: '#d8cca8' },
-        inks: {
+        inks: { police: '#2748ca', mil: '#a72418',
           altBands: ['#0f4f8a', '#0c4273', '#0a365e', '#072a49', '#051e35'], icon: '#0f4f8a',
-          trail: '#1a5a94', leader: '#847556', blockBg: 'rgba(250,245,230,0.95)', blockEdge: '#6e6142',
+          trail: '#1a5a94', leader: '#7f7053', blockBg: 'rgba(250,245,230,0.95)', blockEdge: '#6e6142',
           amber: '#7a4600', amberEdge: '#7a4600',
-          ring: '#a3317f', ringText: '#8c2a6c', ringLabelBg: 'rgba(250,245,230,0.88)',
+          ring: '#6b6552', ringText: '#4f4a3c', ringLabelBg: 'rgba(250,245,230,0.88)',
           home: '#1f1a10', airport: '#8c2a6c',
           textNormal: ['#0f4f8a', '#2b2a22', '#9a5a00', '#5f5a48'],
         },
@@ -292,13 +312,13 @@
 
     {
       id: 'cyanotype', label: 'CYANOTYPE',
-      note: 'Drafting-table blueprint. The map takes the blue, so traffic goes white by night, coral by day.',
+      note: 'Drafting-table blueprint. The map takes the blue, so traffic goes white by night, graphite by day — red stays military.',
       dark: {
         map: { water: '#0a2846', coast: '#cfe2f7', urban: '#16436f', land: '#113860', road: '#2d5c8a',
           label: '#d4e4f4', halo: '#0d3052', coastLine: { color: '#e8f1ff', width: 1.1, opacity: 0.95 } },
         fx: { grid: { color: '#9cc0e6', op: 0.13, size: 48 } },
-        chrome: { bar: '#081f38', ink: '#c7dbf0', bright: '#ffffff', muted: '#86a6c8', accent: '#ffb347', border: '#2d5a86' },
-        inks: {
+        chrome: { bar: '#081f38', ink: '#c7dbf0', bright: '#ffffff', muted: '#86a6c8', accent: '#e8f1ff', border: '#2d5a86' },
+        inks: { police: '#8aacff', mil: '#ff8f80',
           altBands: ['#9fb4c8', '#bccbd9', '#d4dee8', '#e8eef4', '#ffffff'], icon: '#d4dee8',
           trail: '#bcd0e4', leader: '#7fa3c8', iconHalo: 'rgba(4,18,34,0.85)',
           blockBg: 'rgba(6,26,48,0.93)', blockEdge: '#8fb4dc',
@@ -312,15 +332,15 @@
         map: { water: '#e4edf3', coast: '#1d4f91', urban: '#eef0ec', land: '#f8f6ef', road: '#ffffff',
           label: '#1d4f91', halo: '#f8f6ef', coastLine: { color: '#1d4f91', width: 1.1, opacity: 0.9 } },
         fx: { grid: { color: '#1d4f91', op: 0.07, size: 48 } },
-        chrome: { bar: '#f4f1e8', ink: '#1d4f91', bright: '#0f2b52', muted: '#5a73a0', accent: '#c8372d', border: '#c3cfe0' },
+        chrome: { bar: '#f4f1e8', ink: '#1d4f91', bright: '#0f2b52', muted: '#5a73a0', accent: '#1d4f91', border: '#c3cfe0' },
         inks: {
-          altBands: ['#bf3229', '#a12a22', '#83221c', '#5f1914', '#3a100c'], icon: '#bf3229',
-          trail: '#b02f26', leader: '#5a73a0', blockBg: 'rgba(250,248,242,0.95)', blockEdge: '#1d4f91',
+          altBands: ['#4f5560', '#3e434d', '#2e323a', '#1e2127', '#0e1014'], icon: '#4f5560',
+          trail: '#3e434d', leader: '#5a73a0', blockBg: 'rgba(250,248,242,0.95)', blockEdge: '#1d4f91',
           amber: '#8a6200', amberEdge: '#8a6200', amberBg: 'rgba(250,245,228,0.96)',
           textOverhead: ['#8a6200', '#3a2c08', '#8a6200', '#6f5a2a'],
           ring: '#1d4f91', ringText: '#1d4f91', ringLabelBg: 'rgba(248,246,239,0.9)',
           home: '#0f2b52', airport: '#1d4f91', dim: '#8a93a3',
-          textNormal: ['#bf3229', '#1b2433', '#8a6200', '#4d5a70'],
+          textNormal: ['#2e323a', '#1b2433', '#8a6200', '#4d5a70'],
         },
       },
     },
@@ -332,7 +352,7 @@
         map: { water: '#04070b', coast: '#3f3b26', urban: '#221f13', land: '#1c1a10', road: '#2c2918',
           label: '#8a8458', halo: '#0a0a06', shoal: [['#070f1a', 22], ['#0b1728', 8]],
           coastLine: { color: '#57523a', width: 0.8, opacity: 0.9 } },
-        chrome: { bar: '#020304', ink: '#8490aa', bright: '#b8c2d6', muted: '#5f6a80', accent: '#7b98dc', border: '#1e2638' },
+        chrome: { bar: '#020304', ink: '#8490aa', bright: '#b8c2d6', muted: '#5f6a80', accent: '#5fb0a8', border: '#1e2638' },
         inks: {
           altBands: ['#4a8bcc', '#6a9fd6', '#8ab3e0', '#aac7ea', '#cadcf4'], icon: '#6a9fd6',
           trail: '#608ac1', leader: '#586c96', iconHalo: 'rgba(2,3,5,0.85)',
@@ -348,14 +368,14 @@
         map: { water: '#ffffff', coast: '#4d4d4d', urban: '#d4c285', land: '#e3d49e', road: '#efe4c0',
           label: '#2f2f2f', halo: '#ece0b4', shoal: [['#d4e8f8', 22], ['#a6cff0', 8]],
           coastLine: { color: '#3f3f3f', width: 0.8, opacity: 0.9 } },
-        chrome: { bar: '#f1f1ef', ink: '#46505c', bright: '#141a22', muted: '#5f6873', accent: '#1f5ccc', border: '#cfcfca' },
-        inks: {
-          altBands: ['#0c5287', '#0a4675', '#083a62', '#062d4d', '#042139'], icon: '#0c5287',
+        chrome: { bar: '#f1f1ef', ink: '#46505c', bright: '#141a22', muted: '#5f6873', accent: '#0f766e', border: '#cfcfca' },
+        inks: { police: '#2442ba', mil: '#9a2116',
+          altBands: ['#0b5186', '#08426f', '#063358', '#032541', '#01172b'], icon: '#0b5186',
           trail: '#175185', leader: '#6e6856', blockEdge: '#5a5440',
           amber: '#744400', amberEdge: '#744400',
           ring: '#3d57a8', ringText: '#2f4790', ringLabelBg: 'rgba(250,250,248,0.88)',
           airport: '#2f4790',
-          textNormal: ['#0c5287', '#2b3640', '#9a5a00', '#57646f'],
+          textNormal: ['#0b5186', '#2b3640', '#9a5a00', '#57646f'],
         },
       },
     },
@@ -372,14 +392,14 @@
       },
       light: {
         map: { water: '#b3cdd8', coast: '#6f8e9e', urban: '#e0d3b6', land: '#ece4cd', road: '#f7f2e4',
-          label: '#4f4434', halo: '#f3ecdb', relief: { shadow: '#5b4d82', op: 0.7 },
+          label: '#4f4434', halo: '#f3ecdb', relief: { shadow: '#5b4d82', op: 0.36 },
           coastLine: { color: '#5f7f90', width: 0.9, opacity: 0.8 } },
         chrome: { bar: '#f6f1e4', ink: '#5f5646', bright: '#221c12', muted: '#6f6656', accent: '#2d6f9e', border: '#d8ccb2' },
-        inks: {
-          altBands: NAVY_RAMP, icon: NAVY_RAMP[0], trail: '#195684', leader: '#756c5c', blockEdge: '#6e6142',
+        inks: { police: '#2546c4', mil: '#a02217',
+          altBands: ['#0b5389', '#094676', '#07395f', '#042a46', '#021a2c'], icon: '#0b5389', trail: '#195684', leader: '#756c5c', blockEdge: '#6e6142',
           amber: '#7a4800', amberEdge: '#7a4800',
           ring: '#3e6f8c', ringText: '#2d5670', airport: '#2d5670',
-          textNormal: [NAVY_RAMP[0], '#2b3640', '#9a5a00', '#57646f'],
+          textNormal: ['#0b5389', '#2b3640', '#9a5a00', '#57646f'],
         },
       },
     },
@@ -390,30 +410,30 @@
       dark: {
         map: { water: '#0e1536', coast: '#5c66aa', urban: '#2b3166', land: '#222958', road: '#3a4280',
           label: '#aeaede', halo: '#1a2048', coastLine: { color: '#6a74b8', width: 0.9, opacity: 0.85 } },
-        fx: { wash: ['#0e1536', '#ff7aa8', 0.14] },
+        fx: { wash: ['#0e1536', '#ff7aa8', 0.08] },
         chrome: { bar: '#0a0f28', ink: '#a9aee0', bright: '#f0f1ff', muted: '#7a80b8', accent: '#ff9ec0', border: '#2e3670' },
-        inks: {
-          altBands: ['#8fb8ff', '#a8c8ff', '#c0d8ff', '#d8e8ff', '#f0f6ff'], icon: '#a8c8ff',
-          trail: '#8e9be9', leader: '#767dbb', iconHalo: 'rgba(8,10,30,0.85)',
+        inks: { police: '#82a7ff', mil: '#ff8676',
+          altBands: ['#52b6e2', '#80cbec', '#a9dcf2', '#d0edf9', '#f2fbff'], icon: '#8ad3ef',
+          trail: '#99a5eb', leader: '#7e85bf', iconHalo: 'rgba(8,10,30,0.85)',
           blockBg: 'rgba(12,16,44,0.93)', blockEdge: '#8a92d0',
           amber: '#ffae42', amberEdge: '#e0922a',
-          ring: '#7680c8', ringText: '#aab3f2', ringLabelBg: 'rgba(10,14,40,0.85)',
+          ring: '#7a84ca', ringText: '#aab3f2', ringLabelBg: 'rgba(10,14,40,0.85)',
           home: '#f0f1ff', airport: '#b0b8f0', dim: '#6a6f98',
-          textNormal: ['#a8c8ff', '#eef0ff', '#ffc46b', '#a0a8d8'],
+          textNormal: ['#8ad3ef', '#eef0ff', '#ffc46b', '#a0a8d8'],
         },
       },
       light: {
-        map: { water: '#96c3bf', coast: '#a8733a', urban: '#eec68a', land: '#f2d7a4', road: '#fbe9c8',
+        map: { water: '#a6cdc9', coast: '#a8733a', urban: '#eec68a', land: '#f2d7a4', road: '#fbe9c8',
           label: '#5e3a18', halo: '#f6e0b6', coastLine: { color: '#a8733a', width: 0.9, opacity: 0.8 } },
-        fx: { wash: ['#fff2c8', '#ff9e5a', 0.12] },
-        chrome: { bar: '#fbeed5', ink: '#6b4524', bright: '#2b1a0c', muted: '#7f5e3e', accent: '#b0512d', border: '#e6cfa6' },
-        inks: {
-          altBands: ['#17475f', '#133b50', '#0f3041', '#0b2532', '#071a24'], icon: '#17475f',
+        fx: { wash: ['#fff2c8', '#ff9e5a', 0.08] },
+        chrome: { bar: '#fbeed5', ink: '#6b4524', bright: '#2b1a0c', muted: '#7f5e3e', accent: '#2a6a5f', border: '#e6cfa6' },
+        inks: { police: '#2443bd', mil: '#9a2116',
+          altBands: ['#1c536c', '#16455a', '#113748', '#0b2936', '#051a24'], icon: '#1c536c',
           trail: '#1c4e66', leader: '#795d3f', blockBg: 'rgba(253,244,226,0.95)', blockEdge: '#7a5a38',
           amber: '#6b3f00', amberEdge: '#6b3f00',
           ring: '#a2472a', ringText: '#86361a', ringLabelBg: 'rgba(253,244,226,0.88)',
           home: '#2b1a0c', airport: '#67401d',
-          textNormal: ['#17475f', '#2b2218', '#8a5200', '#6b5a48'],
+          textNormal: ['#1c536c', '#2b2218', '#8a5200', '#6b5a48'],
         },
       },
     },
@@ -426,10 +446,10 @@
           label: '#dcc488', halo: '#101c3c', coastLine: { color: '#c49a44', width: 1.1, opacity: 0.9 } },
         chrome: { bar: '#070f22', ink: '#cdb57a', bright: '#f6eed9', muted: '#8a8060', accent: '#d4a84a', border: '#2a3868' },
         inks: {
-          altBands: ['#d9c9a3', '#e3d6b6', '#ece2c9', '#f5eedc', '#fffaf0'], icon: '#e3d6b6',
+          altBands: ['#b8a47c', '#cbb994', '#ddcdb0', '#eee3cf', '#fffaf0'], icon: '#cbb994',
           trail: '#d9c9a3', leader: '#a08a5a', iconHalo: 'rgba(6,12,30,0.85)',
           blockBg: 'rgba(8,16,38,0.93)', blockEdge: '#b8a070',
-          ring: '#c49a44', ringText: '#e8cf8a', ringLabelBg: 'rgba(8,16,38,0.85)',
+          ring: '#8a93b8', ringText: '#c4cae4', ringLabelBg: 'rgba(8,16,38,0.85)',
           home: '#fffaf0', airport: '#e8cf8a', dim: '#6a7090',
           textNormal: ['#f5eedc', '#e6dcc4', '#ffc95e', '#b8a88a'],
         },
@@ -438,14 +458,14 @@
         map: { water: '#a3cbc6', coast: '#4d6d69', urban: '#e8d8b4', land: '#f2e6cc', road: '#fbf4e4',
           label: '#4a3d2f', halo: '#f5ecd8', coastLine: { color: '#4d6d69', width: 1, opacity: 0.9 } },
         fx: { grain: { op: 0.08, blend: 'multiply' } },
-        chrome: { bar: '#f7eedb', ink: '#5a4a36', bright: '#1d2e4a', muted: '#7a6a52', accent: '#c2412d', border: '#e2d3b0' },
-        inks: {
-          altBands: ['#27406a', '#213759', '#1b2e4a', '#15243b', '#0f1a2b'], icon: '#27406a',
+        chrome: { bar: '#f7eedb', ink: '#5a4a36', bright: '#1d2e4a', muted: '#7a6a52', accent: '#27406a', border: '#e2d3b0' },
+        inks: { police: '#2443bd', mil: '#9a2116',
+          altBands: ['#2b4a78', '#223c63', '#1a2f4e', '#12223a', '#0a1526'], icon: '#2b4a78',
           trail: '#932819', leader: '#746651', blockBg: 'rgba(250,244,230,0.95)', blockEdge: '#6e6142',
           amber: '#734400', amberEdge: '#734400',
           ring: '#ba3e2b', ringText: '#a3321f', ringLabelBg: 'rgba(250,244,230,0.88)',
           home: '#1d2e4a', airport: '#8f2c1b',
-          textNormal: ['#27406a', '#2a2418', '#8a5200', '#6a5e4a'],
+          textNormal: ['#2b4a78', '#2a2418', '#8a5200', '#6a5e4a'],
         },
       },
     },
@@ -455,11 +475,11 @@
       note: 'Two fluorescent inks, halftone and grain. The loudest style here: a poster first, a scope second.',
       dark: {
         map: { water: '#16183a', coast: '#ff48b0', urban: '#2a1530', land: '#1c1220', road: '#3a2040',
-          label: '#6cc0ff', halo: '#120c16', coastLine: { color: '#ff48b0', width: 1.2, opacity: 0.95 } },
+          label: '#6cc0ff', halo: '#120c16', coastLine: { color: '#ff48b0', width: 1.2, opacity: 0.7 } },
         fx: { halftone: { color: '#2f7fe0', op: 0.12 }, grain: { op: 0.12, blend: 'screen' } },
         chrome: { bar: '#0c0a0e', ink: '#6cc0ff', bright: '#ffffff', muted: '#8a7a98', accent: '#ff48b0', border: '#3a2440' },
         inks: {
-          altBands: ['#b8b8c8', '#cccce0', '#e0e0ee', '#f0f0f8', '#ffffff'], icon: '#e0e0ee',
+          altBands: ['#9a9aae', '#b6b6c8', '#d0d0de', '#e8e8f2', '#ffffff'], icon: '#e0e0ee',
           trail: '#6cc0ff', leader: '#a080a8', iconHalo: 'rgba(10,6,12,0.85)',
           blockBg: 'rgba(14,10,18,0.93)', blockEdge: '#c0a0c8',
           amber: '#ffe800', amberEdge: '#d8c400', amberBg: 'rgba(24,22,4,0.94)',
@@ -471,14 +491,14 @@
       },
       light: {
         map: { water: '#c9daf0', coast: '#ff48b0', urban: '#f3cadb', land: '#f7e1e8', road: '#fbf2ea',
-          label: '#005f99', halo: '#f7e8ea', coastLine: { color: '#ff48b0', width: 1.2, opacity: 0.9 } },
+          label: '#005f99', halo: '#f7e8ea', coastLine: { color: '#ff48b0', width: 1.2, opacity: 0.65 } },
         fx: { halftone: { color: '#0078bf', op: 0.1 }, grain: { op: 0.14, blend: 'multiply' } },
         chrome: { bar: '#f5f1e6', ink: '#0068a8', bright: '#111111', muted: '#5a6a80', accent: '#e0309a', border: '#e0d8c8' },
-        inks: {
-          altBands: ['#3a3a3a', '#2c2c2c', '#1f1f1f', '#131313', '#060606'], icon: '#2c2c2c',
+        inks: { police: '#294cd6', mil: '#af2519',
+          altBands: ['#5a5a5a', '#454545', '#303030', '#1c1c1c', '#080808'], icon: '#454545',
           trail: '#005f99', leader: '#6a6a6a', blockBg: 'rgba(248,244,234,0.95)', blockEdge: '#3a3a3a',
-          amber: '#9c3200', amberEdge: '#9c3200', amberBg: 'rgba(252,240,230,0.96)',
-          textOverhead: ['#9c3200', '#3a1a08', '#9c3200', '#7a4a30'],
+          amber: '#6f5400', amberEdge: '#6f5400', amberBg: 'rgba(252,246,228,0.96)',
+          textOverhead: ['#6f5400', '#2e2408', '#6f5400', '#6a5a30'],
           ring: '#d42a90', ringText: '#b8207a', ringLabelBg: 'rgba(248,244,234,0.88)',
           home: '#111111', airport: '#005f99',
           textNormal: ['#111111', '#2a2a2a', '#9c3200', '#5a5a5a'],
@@ -490,22 +510,22 @@
       id: 'orbital', label: 'ORBITAL', prefers: 'imagery',
       note: 'Satellite imagery, graded: the night side with glowing cities, or bleached daylight. Heaviest tiles of any style.',
       dark: {
-        map: { ramp: [[0, '#020409'], [0.2, '#04080e'], [0.4, '#0c1318'], [0.62, '#1a2226'], [0.8, '#4a4232'], [1, '#c8a060']],
+        map: { ramp: [[0, '#020409'], [0.2, '#04080e'], [0.4, '#0c1318'], [0.62, '#1a2226'], [0.8, '#24221f'], [1, '#3e3b36']],
           water: '#04080e', land: '#1a2226', label: '#9aa4ae', halo: '#070b10' },
         fx: { vignette: 0.35 },
         chrome: { bar: '#05080c', ink: '#95a7b8', bright: '#eef5fb', muted: '#6d8094', accent: '#38bdff', border: '#24313e' },
         inks: {},
       },
       light: {
-        map: { ramp: [[0, '#7f9aa6'], [0.2, '#9fb6c0'], [0.4, '#b9c2bd'], [0.62, '#d2d0c4'], [0.85, '#ebe7da'], [1, '#f7f4ea']],
-          water: '#9fb6c0', land: '#d2d0c4', label: '#2a3034', halo: '#e8e6de' },
+        map: { ramp: [[0, '#7f9aa6'], [0.2, '#afc3cb'], [0.4, '#b9c2bd'], [0.62, '#d2d0c4'], [0.85, '#ebe7da'], [1, '#f7f4ea']],
+          water: '#afc3cb', land: '#d2d0c4', label: '#2a3034', halo: '#e8e6de' },
         chrome: { bar: '#f1efe9', ink: '#565d63', bright: '#15191c', muted: '#6a7076', accent: '#0a6fc0', border: '#d6d2c6' },
-        inks: {
-          altBands: ['#08406e', '#07375e', '#052e4f', '#042540', '#031c31'], icon: '#08406e',
+        inks: { police: '#2341b6', mil: '#962016',
+          altBands: ['#14507f', '#0f4168', '#0b3352', '#07253c', '#041726'], icon: '#14507f',
           trail: '#0a4674', leader: '#5d5d54', blockEdge: '#5a5a50',
           amber: '#633a00', amberEdge: '#633a00',
           ring: '#2d5f86', ringText: '#1f4f73', airport: '#1c4768',
-          textNormal: ['#08406e', '#2b3640', '#8a5200', '#57646f'],
+          textNormal: ['#14507f', '#2b3640', '#8a5200', '#57646f'],
         },
       },
     },
@@ -524,7 +544,7 @@
           label: '#45453f', halo: '#f2f2ee', coastLine: { color: '#6a6a66', width: 0.9, opacity: 0.85 } },
         fx: { halftone: { color: '#6a6a66', op: 0.07 }, grain: { op: 0.06, blend: 'multiply' } },
         chrome: { bar: '#f7f7f4', ink: '#4a4a47', bright: '#141414', muted: '#6a6a66', accent: '#0a7fd9', border: '#d8d8d2' },
-        inks: { leader: '#7c7a68', trail: '#13639a', amberEdge: '#895300', amber: '#895300',
+        inks: { police: '#2b50e1', mil: '#b8271a', leader: '#7c7a68', trail: '#13639a', amberEdge: '#895300', amber: '#895300',
           altBands: ['#0c5f9c', '#0b5087', '#094272', '#07345c', '#052646'], icon: '#0c5f9c',
           ring: '#77776f', ringText: '#55554f', airport: '#4a5a6a',
           textNormal: ['#0c5f9c', '#2b3640', '#b36200', '#57646f'],
@@ -564,7 +584,13 @@
   // A region big enough for any tile container. Leaflet's layer divs have no
   // size of their own — their tiles are absolutely positioned children — so
   // the default bounding-box region would be empty and paint nothing.
-  const REGION = 'filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" x="-20000" y="-20000" width="40000" height="40000" color-interpolation-filters="sRGB"';
+  //
+  // It has to be far larger than a screen, not just "big": Leaflet keeps
+  // translating tiles further from the container's origin as you pan at one
+  // zoom, and ±20000 px ran out after ~26 screens of panning — a panel
+  // following a flight east went blank. Chrome only rasterises the visible
+  // part of the region, so its size costs nothing.
+  const REGION = 'filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" x="-4000000" y="-4000000" width="8000000" height="8000000" color-interpolation-filters="sRGB"';
 
   function baseFilter(id, src, m) {
     const parts = [`<filter id="${id}" ${REGION}>`, `${matrix(SOURCES[src])} result="t"/>`,
@@ -574,7 +600,18 @@
     if (edges) {
       // Land as alpha, anti-aliased: canonical .30 → 0, .50 → 1 — the top of
       // the water plateau to the built-up stop.
-      parts.push('<feColorMatrix in="t" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5 0 0 0 -1.5" result="la"/>');
+      parts.push('<feColorMatrix in="t" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5 0 0 0 -1.5" result="raw"/>',
+        // Only real shorelines may draw a coast. The raw mask also "sees" a
+        // coast along every thin thing darker or lighter than its field: the
+        // 1 px seams Leaflet leaves between tiles at fractional zoom, the
+        // grey place names baked into Esri's base canvas, road casings, county
+        // lines across the water. Close (fill thin water-coloured lines inside
+        // land) then open (drop thin land-coloured lines over water) — 2 px
+        // each way removes all of those and keeps any inlet wider than ~4 px.
+        '<feMorphology in="raw" operator="dilate" radius="2" result="m1"/>',
+        '<feMorphology in="m1" operator="erode" radius="2" result="m2"/>',
+        '<feMorphology in="m2" operator="erode" radius="2" result="m3"/>',
+        '<feMorphology in="m3" operator="dilate" radius="2" result="la"/>');
     }
     (m.shoal || []).forEach(([color, px], i) => {
       parts.push(`<feGaussianBlur in="la" stdDeviation="${px / 2}" result="sb${i}"/>`,
@@ -631,29 +668,80 @@
       reliefFilter(`${prefix}-relief`, m) + labelFilter(`${prefix}-labels`, m);
   }
 
-  // CSS custom properties for the chrome, from the six a style names.
-  function chromeVars(half) {
+  // A style's effective scope palette: the base theme with its overrides.
+  // One rule is applied rather than trusted to each style: the speed line of
+  // an ordinary data block (textNormal[2]) must not look like the overhead
+  // amber. Several styles inherited a gold speed line, which put "overhead"
+  // on every block on the scope and diluted the one colour that means it.
+  //
+  // Two more, found by an adversarial pass: block text a style inherits was
+  // tuned for CLASSIC's panels (the light overhead callsign measured 2.95:1
+  // on its own block), so every block line is nudged to 4.5:1 on its panel;
+  // and the 7700 flash needs a partner colour that stands off THIS map and
+  // THESE altitude bands — CLASSIC's white vanished on every light ground.
+  function inksFor(style, theme) {
+    const half = style[theme];
+    const inks = { ...BASE_INKS[theme], ...(half && half.inks) };
+    if (style.classic) return inks;
+    const solidOf = (c) => {
+      const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c);
+      return m ? '#' + m.slice(1, 4).map((v) => (+v).toString(16).padStart(2, '0')).join('') : c;
+    };
+    const guard = (lines, bg) => lines.map((c) => ensure(c, solidOf(bg), 4.5, luminance(solidOf(bg)) < 0.2 ? '#ffffff' : '#000000'));
+    inks.textNormal = guard(inks.textNormal, inks.blockBg);
+    inks.textOverhead = guard(inks.textOverhead, inks.amberBg);
+    inks.textMil = guard(inks.textMil, inks.milBg);
+    if (deltaE(inks.textNormal[2], inks.amber) < 20 || deltaE(inks.textNormal[2], inks.textOverhead[0]) < 20) {
+      inks.textNormal[2] = inks.textNormal[3];
+    }
+    const m = half.map;
+    const fields = [m.water, m.land, m.urban || m.land];
+    const stands = (c) => Math.min(...fields.map((x) => contrast(c, x))) >= 3 &&
+      [...inks.altBands, inks.amber].every((b) => deltaE(c, b) >= 20) && deltaE(c, inks.mil) >= 40;
+    inks.emergFlash = ['#ffffff', '#000000', '#ffe600', '#00e5ff', '#ff4dff', '#5b1a8c', '#004d40'].find(stands) || inks.policeWhite;
+    return inks;
+  }
+
+  // CSS custom properties for the chrome, from the six a style names plus the
+  // style's own status inks. The status tokens (--warn overhead, --mil
+  // military, --police) used to stay at CLASSIC's values, so the list and
+  // header spoke a different colour language from the scope beside them.
+  // Guards keep the derived values legible on the style's bar: muted text
+  // 4.6:1, accent 3:1, borders 1.8:1 — a style's hand-picked values only move
+  // if they fall short.
+  function chromeVars(half, inks) {
     const c = half.chrome, m = half.map;
+    const toward = luminance(c.bar) < 0.2 ? '#ffffff' : '#000000';
+    const border = ensure(c.border, c.bar, 1.8, toward);
     return {
       '--stage-bg': m.water,
       '--bar-bg': c.bar,
-      '--bar-ink': c.ink,
-      '--bar-bright': c.bright,
-      '--muted': c.muted,
-      '--accent': c.accent,
+      '--bar-ink': ensure(c.ink, c.bar, 4.5, toward),
+      '--bar-bright': ensure(c.bright, c.bar, 7, toward),
+      '--muted': ensure(c.muted, c.bar, 4.6, toward),
+      '--accent': ensure(c.accent, c.bar, 3, toward),
       '--panel-bg': rgba(c.bar, 0.9),
-      '--panel-border': c.border,
-      '--panel-line': mix(c.bar, c.border, 0.45),
-      '--hover-bg': mix(c.bar, c.border, 0.25),
+      '--panel-border': border,
+      '--panel-line': mix(c.bar, border, 0.45),
+      '--hover-bg': mix(c.bar, border, 0.25),
       '--input-bg': c.bar,
-      '--input-border': c.border,
-      '--btn-bg': mix(c.bar, c.border, 0.35),
+      '--input-border': border,
+      '--btn-bg': mix(c.bar, border, 0.35),
+      '--warn': inks.amber,
+      // Text on the bar (the header's "N OVERHEAD") needs 4.5:1, which an ink
+      // tuned for the map may not have against the chrome.
+      '--warn-text': ensure(inks.amber, c.bar, 4.5, toward),
+      // Military rows in the lists. Not --bad: that is the app's error red
+      // (a dead feed), which does not change meaning when the style does.
+      '--mil': inks.mil,
+      '--police': inks.police,
     };
   }
 
   const CHROME_VARS = ['--stage-bg', '--bar-bg', '--bar-ink', '--bar-bright', '--muted', '--accent', '--panel-bg',
-    '--panel-border', '--panel-line', '--hover-bg', '--input-bg', '--input-border', '--btn-bg'];
+    '--panel-border', '--panel-line', '--hover-bg', '--input-bg', '--input-border', '--btn-bg',
+    '--warn', '--warn-text', '--mil', '--police'];
 
   const byId = (id) => STYLES.find((s) => s.id === id) || STYLES[0];
-  return { STYLES, BASE_INKS, CHROME_VARS, byId, filterDefs, chromeVars, labelKind, rampOf, sample, contrast, luminance, mix };
+  return { STYLES, BASE_INKS, CHROME_VARS, byId, inksFor, filterDefs, chromeVars, labelKind, rampOf, sample, contrast, luminance, mix, deltaE, lab };
 });
