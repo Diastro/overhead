@@ -155,6 +155,11 @@ rings and leader lines. Run it after changing a palette.
   so parallel approaches and pattern traffic don't alarm all day
   (`conflict_nm`, `conflict_ft`, `conflict_floor_ft`).
 - **VFR** — squawk 1200 shows as `VFR` in the data block.
+- **Overhead callout** — while something is overhead the header names it
+  (`SWA2291 · B38M · 3,200 FT`); otherwise it counts down to the next
+  aircraft whose current track will carry it over home within five minutes
+  (`NEXT UAL1834 IN 1:06`). Embedded in a kiosk shell, where the header is
+  hidden, the same line shows as a chip at the bottom of the map.
 
 Both scope tools are switches in **◧ LAYERS**.
 

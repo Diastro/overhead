@@ -2316,7 +2316,9 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       ty += tagH;
     }
 
-    const palette = mil ? COLORS.textMil : police ? COLORS.textPolice
+    // An emergency reads in the alert palette too — it used to get ordinary
+    // traffic text inside a red EMERGENCY frame.
+    const palette = (mil || emerg) ? COLORS.textMil : police ? COLORS.textPolice
       : overhead ? COLORS.textOverhead : COLORS.textNormal;
     ctx.textBaseline = 'top';
     lines.forEach((s, i) => {
@@ -2719,6 +2721,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     if (layers.airports && airports.length) drawAirports();
 
     let overheadCount = 0;
+    let barOverhead = null; // the target named in the header while overhead
+    let barNext = null;     // { t, sec } — the next one predicted to pass over
     const blockQueue = []; // blocks draw after every icon, so details sit on top
 
     if (layers.aircraft) for (const t of targets.values()) {
@@ -2759,7 +2763,27 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       // FL350 crossing the ring is an overflight, not an event.
       const overhead = !f.onGround && dHome <= (config.overhead_nm || 5) &&
         (f.alt == null || f.alt <= OVERHEAD_MAX_FT);
-      if (overhead) overheadCount++;
+      if (overhead) {
+        overheadCount++;
+        // The one to name in the header: the lowest, since that is the one
+        // you can hear.
+        if (!barOverhead || (f.alt ?? 0) < (barOverhead.fix.alt ?? 0)) barOverhead = t;
+      } else if (!f.onGround && Number.isFinite(f.gs) && f.gs > 40 &&
+                 (f.alt == null || f.alt <= OVERHEAD_MAX_FT)) {
+        // Next overhead: closest point of approach to home on the current
+        // track and speed (flat earth is fine inside a few NM). An aircraft
+        // that will pass inside the overhead ring within five minutes is
+        // announced with its countdown.
+        const k = Math.cos(HOME[0] * Math.PI / 180);
+        const dx = (t.shown.lon - HOME[1]) * 60 * k, dy = (t.shown.lat - HOME[0]) * 60;
+        const tr = t.shown.track * Math.PI / 180;
+        const vx = (f.gs * Math.sin(tr)) / 3600, vy = (f.gs * Math.cos(tr)) / 3600;
+        const tc = -(dx * vx + dy * vy) / (vx * vx + vy * vy);
+        if (tc > 0 && tc < 300 && Math.hypot(dx + vx * tc, dy + vy * tc) <= (config.overhead_nm || 5) &&
+            (!barNext || tc < barNext.sec)) {
+          barNext = { t, sec: tc };
+        }
+      }
       const dimmed = f.onGround;
       const mil = !!t.meta.mil;
       const police = !!t.meta.police && !mil;
@@ -3024,7 +3048,7 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       if (tipAirport) drawAirportTip(tipAirport);
     }
 
-    updateBar(overheadCount);
+    updateBar(overheadCount, barOverhead, barNext);
     // Power: with an empty sky and an idle camera every frame is pixel-identical
     // — rings, home and scale only move with the map. Dropping to 4 fps there
     // takes the panel's steady-state GPU compositing down by ~93% for the hours
@@ -3125,6 +3149,8 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
     count: document.getElementById('count'),
     overhead: document.getElementById('overhead-count'),
     overheadStat: document.getElementById('overhead-stat'),
+    detail: document.getElementById('bar-detail'),
+    chip: document.getElementById('overhead-chip'),
     dot: document.getElementById('feed-dot'),
     feed: document.getElementById('feed-name'),
     nextScan: document.getElementById('next-scan'),
@@ -3139,7 +3165,36 @@ window.addEventListener('unhandledrejection', (e) => showFatal(e.reason?.message
       node.textContent = value;
     }
   }
-  function updateBar(overheadCount) {
+  // Header detail beside the counts: name the aircraft overhead, or count
+  // down to the next one. Read from across a room, "SWA2291 · B38M" beats
+  // "1 OVERHEAD", and a countdown turns the wall into something you glance
+  // at before stepping outside to look up.
+  const nameOf = (m) => m.callsign || m.reg || m.hex.toUpperCase();
+  function barDetail(ov, next) {
+    if (ov) {
+      const m = ov.meta;
+      const alt = ov.fix.onGround ? 'GND' : fmtAlt(ov.fix.alt);
+      return [nameOf(m), m.type, alt && alt.toUpperCase()].filter(Boolean).join(' · ');
+    }
+    if (next) {
+      const s = Math.max(0, Math.round(next.sec));
+      return `NEXT ${nameOf(next.t.meta)} IN ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    }
+    return '';
+  }
+  function updateBar(overheadCount, ov, next) {
+    const detail = barDetail(ov, next);
+    setText(el.detail, 'detail', detail ? ` · ${detail}` : '');
+    setText(el.chip, 'chip', ov ? `OVERHEAD · ${detail}` : detail);
+    if (cached.detailOv !== !!ov) {
+      cached.detailOv = !!ov;
+      el.detail.classList.toggle('now', !!ov);
+      el.chip.classList.toggle('now', !!ov);
+    }
+    if (cached.chipOn !== !!detail) {
+      cached.chipOn = !!detail;
+      el.chip.classList.toggle('show', !!detail);
+    }
     setText(el.count, 'count', String(targets.size));
     setText(el.overhead, 'overhead', String(overheadCount));
     // "Something is overhead right now" is the whole point of the product, and

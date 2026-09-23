@@ -11,7 +11,7 @@
 <body>
   <header id="bar">
     <div class="brand">OVERHEAD<span>▲</span></div>
-    <div class="stat center"><b id="count">0</b> AIRCRAFT · <span id="overhead-stat"><b id="overhead-count">0</b> OVERHEAD</span></div>
+    <div class="stat center"><b id="count">0</b> AIRCRAFT · <span id="overhead-stat"><b id="overhead-count">0</b> OVERHEAD</span><span id="bar-detail"></span></div>
     <div class="right">
       <div class="stat" id="clock">--:--:--</div>
       <button id="theme-toggle" type="button" title="Dark theme — tap for light">☾</button>
@@ -87,6 +87,7 @@
       <ul id="ac-list"></ul>
     </aside>
     <div id="alert-banner"></div>
+    <div id="overhead-chip" aria-live="polite"></div>
     <div id="wide-banner">VIEW WIDER THAN FEED COVERAGE — SHOWING AIRCRAFT WITHIN 87 NM OF CENTER</div>
     <div id="bw" title="Feed status, data usage, and bandwidth settings"><span id="bw-label">⚙ SETTINGS</span><span id="next-scan"></span></div>
     <div id="bw-chart">

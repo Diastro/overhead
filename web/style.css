@@ -91,6 +91,11 @@ body { background: var(--stage-bg); }
    across the room rather than only when you walk up to the screen. */
 #overhead-stat.active, #overhead-stat.active b { color: var(--warn); }
 #overhead-stat.active b { font-weight: 700; }
+/* The overhead aircraft by name — the header's loudest text while it lasts;
+   the "next" countdown stays quiet until it becomes "now". */
+#bar-detail { color: var(--muted); }
+#bar-detail.now { color: var(--warn); font-weight: 700; }
+body.light #bar-detail.now { color: var(--warn-text, #9c5400); }
 /* --warn is tuned for dots and map ink, where it sits on dark. On the light
    theme's ivory bar it measures 2.73:1 as 13px text — worse than the --muted
    value this same change set darkened for exactly this reason. This is the
@@ -259,6 +264,12 @@ body.embed #list-panel, body.embed #home-panel, body.embed #find-panel { top: 16
    reached the VIEW control at the top-right on a 720 px-tall panel. Cap it
    below that control and let it scroll instead of covering it. */
 #layers-panel { max-height: calc(100% - 72px - 110px); overflow-y: auto; }
+/* Scrolling panels get a thin scrollbar in the style's own colours — the
+   native grey bar looked like an unstyled page on the wall. */
+#layers-panel, #list-panel, #find-results, #bw-chart {
+  scrollbar-width: thin;
+  scrollbar-color: var(--panel-border) transparent;
+}
 /* Switches, not form checkboxes: the panel sits on an operational display,
    so its controls should read as instrumentation. */
 #layers-panel label {
@@ -846,3 +857,28 @@ body.wall #find-panel .hint { font-size: 12px; }
 body.wall #find-results li { padding: 11px 10px; font-size: 15px; }
 body.wall #find-results .l2 { font-size: 13px; }
 body.wall #alert-banner { font-size: 15px; padding: 11px 24px; }
+/* Embedded in the kiosk shell there is no header bar, so the overhead
+   callout ("SWA2291 · B38M · 3,200 FT" / "NEXT … IN 1:40") gets its own chip
+   on the glass, bottom centre — the one edge the panels leave free. */
+#overhead-chip {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 600;
+  display: none;
+  padding: 7px 16px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--bar-ink);
+  white-space: nowrap;
+  pointer-events: none;
+}
+body.embed #overhead-chip.show { display: block; }
+#overhead-chip.now { color: var(--warn); border-color: var(--warn); font-weight: 700; }
+body.light #overhead-chip.now { color: var(--warn-text, #9c5400); }
+body.wall #overhead-chip { font-size: 16px; padding: 10px 22px; }
