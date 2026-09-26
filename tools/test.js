@@ -193,3 +193,46 @@ test('arrival estimate allows for the descent', () => {
   assert.equal(etaMin(6, { fix: { gs: 150, alt: 1500 } }), 2);
   assert.equal(etaMin(6, { fix: { gs: null, alt: 1500 } }), null);
 });
+
+// ------------------------------------------------------------------ sources
+const SOURCES_SRC = section(SERVER, '// ------------------------------------------------------------------ sources',
+  '// ---------------------------------------------------------------- enrichment');
+function loadSources() {
+  return new Function(`${SOURCES_SRC}; return { SOURCES, PARK_MS, nextSource, suspectEmpty };`)();
+}
+
+test('each source builds its own URL shape and names its own list', () => {
+  const { SOURCES } = loadSources();
+  const by = Object.fromEntries(SOURCES.map((s) => [s.name, s]));
+  assert.deepEqual(SOURCES.map((s) => s.name), ['adsb.lol', 'adsb.fi', 'airplanes.live']);
+  assert.equal(by['adsb.lol'].url(40.7, -74, 50), 'https://api.adsb.lol/v2/point/40.7/-74/50');
+  assert.equal(by['adsb.fi'].url(40.7, -74, 50), 'https://opendata.adsb.fi/api/v2/lat/40.7/lon/-74/dist/50');
+  assert.equal(by['airplanes.live'].url(40.7, -74, 50), 'https://api.airplanes.live/v2/point/40.7/-74/50');
+  assert.equal(by['adsb.fi'].list, 'aircraft');
+  assert.equal(by['adsb.lol'].list, 'ac');
+});
+
+test('failover skips a parked source, and falls back to the soonest when all are', () => {
+  const { SOURCES, PARK_MS, nextSource } = loadSources();
+  const now = 1_000_000;
+  assert.equal(nextSource(0, now), 1);
+  assert.equal(nextSource(2, now), 0, 'wraps around');
+  SOURCES[2].parkedUntil = now + PARK_MS;           // airplanes.live refused
+  assert.equal(nextSource(1, now), 0, 'skips the parked one');
+  SOURCES[0].parkedUntil = now + 3000;
+  SOURCES[1].parkedUntil = now + 2000;
+  assert.equal(nextSource(0, now), 1, 'all parked: the one back soonest');
+  assert.equal(nextSource(1, now + PARK_MS + 1), 2, 'a lapsed park rejoins');
+});
+
+test('a sudden empty sky gets a second opinion; an agreed one is believed', () => {
+  const { SOURCES, PARK_MS, suspectEmpty } = loadSources();
+  const now = 1_000_000;
+  assert.equal(suspectEmpty(0, 80, 0, now), true, 'first source empty after 80 aircraft');
+  assert.equal(suspectEmpty(0, 80, 1, now), true, 'second source empty too — one more to ask');
+  assert.equal(suspectEmpty(0, 80, 2, now), false, 'all three agree: believe it');
+  assert.equal(suspectEmpty(0, 3, 0, now), false, 'a nearly empty sky going empty is not suspicious');
+  assert.equal(suspectEmpty(5, 80, 0, now), false, 'some aircraft is not an empty sky');
+  SOURCES[2].parkedUntil = now + PARK_MS;
+  assert.equal(suspectEmpty(0, 80, 1, now), false, 'with one source parked, two agreeing is enough');
+});

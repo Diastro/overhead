@@ -40,11 +40,47 @@ function writeJsonAtomic(p, value, pretty) {
 const config = loadConfig();
 let homeExplicitAt = 0; // wall-clock of the last explicit SET this lifetime
 
-// Feed sources, in failover order. Same /v2/point/{lat}/{lon}/{radius} shape.
+// ------------------------------------------------------------------ sources
+// Feed sources, in failover order. All three answer with the same readsb-style
+// aircraft records (hex, lat, lon, alt_baro, dst, …); they differ only in the
+// URL shape and the name of the list.
+//
+// airplanes.live now refuses unregistered projects outright — a 403 asking the
+// operator to get in touch — so it is last, and a 403 parks a source for
+// PARK_MS instead of the failover walking back into it every minute. If the
+// project is ever registered, it rejoins on its own when the park lapses.
 const SOURCES = [
-  { name: 'airplanes.live', base: 'https://api.airplanes.live/v2/point' },
-  { name: 'adsb.lol', base: 'https://api.adsb.lol/v2/point' },
+  { name: 'adsb.lol', list: 'ac', url: (lat, lon, nm) => `https://api.adsb.lol/v2/point/${lat}/${lon}/${nm}` },
+  { name: 'adsb.fi', list: 'aircraft', url: (lat, lon, nm) => `https://opendata.adsb.fi/api/v2/lat/${lat}/lon/${lon}/dist/${nm}` },
+  { name: 'airplanes.live', list: 'ac', url: (lat, lon, nm) => `https://api.airplanes.live/v2/point/${lat}/${lon}/${nm}` },
 ];
+const PARK_MS = 6 * 60 * 60 * 1000;
+
+// The source after `from`: the next one not parked, or — when every one is —
+// whichever comes back soonest.
+function nextSource(from, now = Date.now()) {
+  for (let k = 1; k <= SOURCES.length; k++) {
+    const i = (from + k) % SOURCES.length;
+    if (!(SOURCES[i].parkedUntil > now)) return i;
+  }
+  let best = from;
+  for (let i = 0; i < SOURCES.length; i++) {
+    if ((SOURCES[i].parkedUntil || 0) < (SOURCES[best].parkedUntil || 0)) best = i;
+  }
+  return best;
+}
+
+// Whether an empty answer should get a second opinion before the display
+// draws an empty sky. A feed having a bad moment answers 200 with no aircraft
+// — adsb.lol spent an afternoon doing exactly that for every point on Earth —
+// and that is indistinguishable, from one answer, from a quiet night. So: if
+// the last sky had SUSPECT_MIN or more aircraft, ask the next source; once
+// every usable source has said "empty" (strikes), believe it.
+const SUSPECT_MIN = 10;
+function suspectEmpty(count, lastCount, strikes, now = Date.now()) {
+  const usable = SOURCES.filter((s) => !(s.parkedUntil > now)).length;
+  return count === 0 && lastCount >= SUSPECT_MIN && strikes < usable - 1;
+}
 
 // ---------------------------------------------------------------- enrichment
 
@@ -499,6 +535,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
 }
 
 let sourceIdx = 0;
+let emptyStrikes = 0; // sources in a row that answered an unexpectedly empty sky
 let lastPayload = null;
 let lastSuccessAt = 0;
 let consecutiveFailures = 0;
@@ -566,7 +603,7 @@ const coarse = (deg) => Math.round(deg * 1000) / 1000;
 const RADIUS_NM = Math.min(config.radius_nm, Math.round(100 * 0.868976));
 
 async function fetchRegion(src, lat, lon, radiusNm) {
-  const res = await fetch(`${src.base}/${coarse(lat)}/${coarse(lon)}/${radiusNm}`, {
+  const res = await fetch(src.url(coarse(lat), coarse(lon), radiusNm), {
     signal: AbortSignal.timeout(8000),
     headers: { Accept: 'application/json', 'User-Agent': 'overhead-tracker (github.com/Diastro/overhead)' },
   });
@@ -590,8 +627,9 @@ async function fetchRegion(src, lat, lon, radiusNm) {
   // "QUIET SKY" and nobody can tell from a real one. An empty `ac: []` is a
   // legitimate answer and still passes.
   const body = JSON.parse(text);
-  if (!Array.isArray(body.ac)) throw new Error('HTTP 200 without an aircraft array');
-  return body.ac;
+  const list = body[src.list];
+  if (!Array.isArray(list)) throw new Error('HTTP 200 without an aircraft array');
+  return list;
 }
 
 async function poll(kind = 'full') {
@@ -694,6 +732,16 @@ async function pollOnce(kind) {
       lastOuterAt = Date.now();
     }
     const aircraft = normalize(ac);
+    const lastCount = lastPayload && Array.isArray(lastPayload.aircraft) ? lastPayload.aircraft.length : 0;
+    if (suspectEmpty(aircraft.length, lastCount, emptyStrikes)) {
+      emptyStrikes++;
+      const next = nextSource(sourceIdx);
+      console.error(`[feed] ${src.name} reported an empty sky right after ${lastCount} aircraft — asking ${SOURCES[next].name}`);
+      sourceIdx = next;
+      consecutiveFailures = 0;
+      return; // clients keep coasting on the last targets until the other source answers
+    }
+    emptyStrikes = 0;
     for (const a of aircraft) a.route = routeLabel(routeFor(a.callsign), a);
     // Bookkeeping must never cost the display its aircraft.
     try { noteSky(aircraft); } catch (err) { console.error(`[today] ${err.message}`); }
@@ -715,16 +763,25 @@ async function pollOnce(kind) {
     };
     broadcast(lastPayload);
   } catch (err) {
-    consecutiveFailures++;
-    const waitMs = noteFeedFailure(err.retryAfterMs);
-    console.error(
-      `[feed] ${src.name} failed (${err.message}), failures=${consecutiveFailures}, ` +
-      `next attempt in ${Math.round(waitMs / 1000)}s`
-    );
-    if (consecutiveFailures >= 2) {
-      sourceIdx = (sourceIdx + 1) % SOURCES.length;
-      console.error(`[feed] switching to ${SOURCES[sourceIdx].name}`);
+    if (/HTTP 403/.test(err.message)) {
+      // A refusal, not a rate limit: retrying cannot fix it, and the source
+      // after it is not to blame, so no backoff — park it and move on.
+      src.parkedUntil = Date.now() + PARK_MS;
+      sourceIdx = nextSource(sourceIdx);
       consecutiveFailures = 0;
+      console.error(`[feed] ${src.name} refused (${err.message}); parked for ${PARK_MS / 3600000} h, switching to ${SOURCES[sourceIdx].name}`);
+    } else {
+      consecutiveFailures++;
+      const waitMs = noteFeedFailure(err.retryAfterMs);
+      console.error(
+        `[feed] ${src.name} failed (${err.message}), failures=${consecutiveFailures}, ` +
+        `next attempt in ${Math.round(waitMs / 1000)}s`
+      );
+      if (consecutiveFailures >= 2) {
+        sourceIdx = nextSource(sourceIdx);
+        console.error(`[feed] switching to ${SOURCES[sourceIdx].name}`);
+        consecutiveFailures = 0;
+      }
     }
     broadcast({
       now: Date.now(),
