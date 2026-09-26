@@ -253,8 +253,11 @@ Code is MIT licensed (see `LICENSE`). Bundled/consumed third parties:
   (Esri, Maxar, Earthstar Geographics, and the GIS User Community) and the
   [OpenStreetMap](https://www.openstreetmap.org/copyright) standard layer —
   attribution must stay visible in the app
-- Live aircraft data: [airplanes.live](https://airplanes.live) /
-  [adsb.lol](https://adsb.lol) community feeds — non-commercial use
+- Live aircraft data: [adsb.lol](https://adsb.lol), [adsb.fi](https://adsb.fi)
+  and [airplanes.live](https://airplanes.live) community feeds, in that
+  failover order — non-commercial use. airplanes.live now answers unregistered
+  projects with a 403; the tracker parks a source that refuses it for six
+  hours, and asks another source before believing a sudden empty sky
 - Geocoding: [Nominatim](https://nominatim.org) (OpenStreetMap) — rate-limited
   per their usage policy
 - Airports: [OurAirports](https://ourairports.com/data/) — public domain
